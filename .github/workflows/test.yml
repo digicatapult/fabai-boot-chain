@@ -84,7 +84,7 @@ jobs:
           path: out
           if-no-files-found: error
 
-  # Two independent builders must produce the same bytes (R4).
+  # Two independent builders must produce the same bytes.
   compare:
     name: Compare builders
     needs: build
@@ -143,40 +143,3 @@ jobs:
         run: |
           sha256sum patched/OVMF.fd unpatched/OVMF.fd | tee -a "$GITHUB_STEP_SUMMARY"
           cmp patched/OVMF.fd unpatched/OVMF.fd
-
-  # TEMPORARY, remove before merging. Checks that setting PcdUse1GPageTable
-  # with --pcd gives the same image as setting it in the DSC, using the two
-  # fabai-demo-edk2 commits that differ only in that DSC line.
-  pcd-equivalence:
-    name: --pcd matches the DSC edit
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    permissions:
-      contents: read
-    env:
-      FORK: git+https://github.com/digicatapult/fabai-demo-edk2
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install Nix
-        uses: ./.github/actions/install-nix
-
-      - name: Build the DSC edit, without --pcd
-        run: |
-          nix build --print-build-logs --no-write-lock-file --out-link dsc \
-            --override-input edk2 "${FORK}?ref=refs/heads/feature/enable_1g_page_tables&rev=342dcf7de0ec778ec7fe1ff421eec31efe79e2eb&submodules=1&shallow=1" \
-            .#verify.cc-unpatched-no-pcd
-
-      - name: Build its parent, with --pcd
-        run: |
-          nix build --print-build-logs --no-write-lock-file --out-link pcd \
-            --override-input edk2 "${FORK}?ref=refs/heads/master&rev=dfcf21667158bb664d091998cdcf8e7cb14c8928&submodules=1&shallow=1" \
-            .#verify.cc-unpatched
-
-      - name: Compare
-        run: |
-          sha256sum dsc/OVMF.fd pcd/OVMF.fd | tee -a "$GITHUB_STEP_SUMMARY"
-          cmp dsc/OVMF.fd pcd/OVMF.fd

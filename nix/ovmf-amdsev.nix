@@ -16,13 +16,11 @@
   src,
   # Full edk2 commit, for the derivation name only.
   edk2Rev,
-  # "cc": confidential, RELEASE, no debug output (R3).
+  # "cc": confidential, RELEASE, no debug output.
   # "noncc": DEBUG, null blob verifier; never for confidential guests.
   variant,
   # Only for verification builds: the patch must not change the cc image.
   applyNonCcPatch ? true,
-  # Only for verification builds of trees that already set the PCD in the DSC.
-  enable1GPageTable ? true,
 }:
 
 assert lib.assertOneOf "variant" variant [
@@ -49,8 +47,7 @@ let
     "OvmfPkg/AmdSev/AmdSevX64.dsc"
     "-b"
     target
-  ]
-  ++ lib.optionals enable1GPageTable [
+    # Until upstream sets this in AmdSevX64.dsc.
     "--pcd"
     "gEfiMdeModulePkgTokenSpaceGuid.PcdUse1GPageTable=TRUE"
   ]
