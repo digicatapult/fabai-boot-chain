@@ -5,7 +5,7 @@ chain, including the AMD SEV-SNP guest firmware (OVMF) built from unmodified
 [tianocore/edk2](https://github.com/tianocore/edk2) source and published with
 Sigstore build provenance.
 
-## Forking edk2?
+## Forking edk2
 
 A confidential guest's launch measurement covers the firmware image, so anyone
 verifying a measurement is trusting the firmware source. With a fork, a reviewer
