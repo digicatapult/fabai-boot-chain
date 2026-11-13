@@ -12,10 +12,16 @@ This repository's own files are licensed under the Apache License, Version 2.0
   under edk2's licences (BSD-2-Clause-Patent, plus the licences of the bundled
   libraries it compiles in), not under Apache-2.0.
 
+## Third-party material
+
+| Path | Source | Commit | Licence |
+|------|--------|--------|---------|
+| [`firmware/edk2/patches/0001-OvmfPkg-AmdSev-add-NON_CC_BUILD.patch`](firmware/edk2/patches/0001-OvmfPkg-AmdSev-add-NON_CC_BUILD.patch) | [tinfoilsh/edk2](https://github.com/tinfoilsh/edk2), rebased onto `edk2-stable202608` | [`97c3701c0f`](https://github.com/tinfoilsh/edk2/commit/97c3701c0f497c9677bf69ea19da66415412be60) | BSD-2-Clause-Patent ([`firmware/edk2/LICENSE`](firmware/edk2/LICENSE)) |
+
 ## Acknowledgements
 
-No code is copied from these projects, but this repository's design builds on
-their work:
+Apart from the material listed above, no code is copied from these projects, but
+this repository's design builds on their work:
 
 - [tinfoilsh/edk2](https://github.com/tinfoilsh/edk2): the non-confidential
   `NON_CC_BUILD` variant of `OvmfPkg/AmdSev/AmdSevX64.dsc`, and enabling

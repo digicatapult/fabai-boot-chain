@@ -1,0 +1,51 @@
+name: Install Nix
+description: >-
+  Install Nix as a multi-user daemon with the official installer, pinned by
+  version and by the installer's SHA-256. The installer checks the SHA-256 of
+  the Nix tarball it downloads, so pinning the installer pins the whole install.
+
+inputs:
+  github-token:
+    description: Token for fetching flake inputs from GitHub without hitting anonymous rate limits.
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Nix
+      shell: bash
+      env:
+        # To update: take the version from https://github.com/NixOS/nix/tags and
+        # the hash from https://releases.nixos.org/nix/nix-<version>/install.sha256
+        NIX_VERSION: 2.35.6
+        NIX_INSTALLER_SHA256: 6f7bf206efb54cd4941fb274930dbc74fdfc16fcb06757ef261c8d7d69cfd60e
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        installer="$RUNNER_TEMP/nix-install"
+        curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+          --output "$installer" \
+          "https://releases.nixos.org/nix/nix-${NIX_VERSION}/install"
+        printf '%s  %s\n' "$NIX_INSTALLER_SHA256" "$installer" | sha256sum --check --strict -
+
+        # The sandbox is what makes builds independent of the runner image, and
+        # fixes the build directory (/build) that ends up in compiler output.
+        conf="$RUNNER_TEMP/nix.conf"
+        {
+          printf 'experimental-features = nix-command flakes\n'
+          printf 'sandbox = true\n'
+          printf 'max-jobs = auto\n'
+          printf 'access-tokens = github.com=%s\n' "$GITHUB_TOKEN"
+        } > "$conf"
+
+        sh "$installer" --daemon --yes --no-channel-add --nix-extra-conf-file "$conf"
+        rm -f "$installer" "$conf"
+
+        nix_bin=/nix/var/nix/profiles/default/bin
+        installed="$("$nix_bin/nix" --version)"
+        printf '%s\n' "$installed"
+        [[ "$installed" == "nix (Nix) ${NIX_VERSION}" ]]
+        [[ "$("$nix_bin/nix" config show sandbox)" == "true" ]]
+
+        printf '%s\n' "$nix_bin" >> "$GITHUB_PATH"
