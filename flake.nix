@@ -46,13 +46,6 @@
           variant = "cc";
           applyNonCcPatch = false;
         };
-        # Upstream defaults only, for building trees that already set
-        # PcdUse1GPageTable in the DSC.
-        cc-unpatched-no-pcd = ovmf {
-          variant = "cc";
-          applyNonCcPatch = false;
-          enable1GPageTable = false;
-        };
       };
     };
 }

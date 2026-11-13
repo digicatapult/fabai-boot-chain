@@ -53,9 +53,28 @@ release.
 
 ## Reproducibility
 
-The toolchain will be pinned with a Nix flake, so anyone can rebuild a release
-from its tag and compare SHA-256 digests. The published binaries are a
-convenience; rebuilding is what makes them verifiable.
+The toolchain is pinned with a Nix flake: [`flake.lock`](flake.lock) fixes the
+edk2 commit (with its submodules) and the nixpkgs revision that supplies the
+compiler, NASM, iasl and Python. Publishing binaries is mere convenience;
+rebuilding is what makes them verifiable.
+
+To rebuild on an `x86_64-linux` machine with Nix (flakes enabled, sandbox on):
+
+```sh
+git clone https://github.com/digicatapult/fabai-boot-chain
+cd fabai-boot-chain
+git checkout <release tag>
+nix build .#ovmf-cc        # or .#ovmf-noncc
+sha256sum result/*.fd
+```
+
+Compare the digest with the release's `SHA256SUMS`. Digests change whenever the
+edk2 or nixpkgs pin moves, so each release records its own rather than this
+README.
+
+CI builds each variant on two runner images, with a second built from scratch on
+one of them, and fails unless all three images are identical. It also checks
+that the non-confidential patch leaves `OVMF.fd` byte-for-byte unchanged.
 
 ## Related repositories
 
