@@ -1,0 +1,145 @@
+name: Test
+
+on:
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Each variant is built on two runner images. On the first, it is then built
+  # again from scratch, which Nix compares byte for byte with the first build.
+  build:
+    name: Build ${{ matrix.variant }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [cc, noncc]
+        runner: [ubuntu-24.04, ubuntu-22.04]
+    env:
+      VARIANT: ${{ matrix.variant }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: ./.github/actions/install-nix
+
+      - name: Build
+        run: nix build --print-build-logs --out-link result ".#ovmf-${VARIANT}"
+
+      - name: Rebuild and compare
+        if: matrix.runner == 'ubuntu-24.04'
+        run: nix build --rebuild --keep-failed --out-link result ".#ovmf-${VARIANT}"
+
+      - name: Keep both images if the rebuild differs
+        if: failure()
+        run: |
+          mkdir -p nondeterministic
+          out="$(readlink -f result)"
+          for dir in "$out" "${out}.check"; do
+            if [[ -d "$dir" ]]; then
+              cp -r "$dir" "nondeterministic/$(basename "$dir")"
+            fi
+          done
+
+      - name: Upload both images if the rebuild differs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nondeterministic-${{ matrix.variant }}-${{ matrix.runner }}
+          path: nondeterministic
+          if-no-files-found: ignore
+
+      - name: Record digest
+        run: |
+          mkdir -p out
+          cp result/*.fd out/
+          nix eval --raw ".#ovmf-${VARIANT}.drvPath" > out/DRV
+          (cd out && sha256sum -- *.fd > SHA256SUMS)
+          cat out/DRV out/SHA256SUMS
+          {
+            printf '### %s on %s\n\n```\n' "$VARIANT" "$RUNNER"
+            cat out/SHA256SUMS
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          RUNNER: ${{ matrix.runner }}
+
+      - name: Upload image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ovmf-${{ matrix.variant }}-${{ matrix.runner }}
+          path: out
+          if-no-files-found: error
+
+  # Two independent builders must produce the same bytes.
+  compare:
+    name: Compare builders
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - name: Download images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ovmf-*
+          path: artifacts
+
+      - name: Compare digests
+        run: |
+          status=0
+          for variant in cc noncc; do
+            first="artifacts/ovmf-${variant}-ubuntu-24.04"
+            second="artifacts/ovmf-${variant}-ubuntu-22.04"
+            if ! cmp -s "$first/DRV" "$second/DRV"; then
+              printf '%s: the runners evaluated different derivations\n' "$variant"
+              status=1
+            elif ! cmp -s "$first/SHA256SUMS" "$second/SHA256SUMS"; then
+              printf '%s: images differ between runners\n' "$variant"
+              status=1
+            else
+              printf '%s: identical\n' "$variant"
+            fi
+            cat "$first/SHA256SUMS" "$second/SHA256SUMS"
+          done
+          exit "$status"
+
+  # The NON_CC_BUILD patch is applied to both variants, so it must not change
+  # the cc image while NON_CC_BUILD is FALSE.
+  patch-inert:
+    name: Patch is inert for cc
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: ./.github/actions/install-nix
+
+      - name: Build with and without the patch
+        run: |
+          nix build --print-build-logs --out-link patched .#ovmf-cc
+          nix build --print-build-logs --out-link unpatched .#verify.cc-unpatched
+
+      - name: Compare
+        run: |
+          sha256sum patched/OVMF.fd unpatched/OVMF.fd | tee -a "$GITHUB_STEP_SUMMARY"
+          cmp patched/OVMF.fd unpatched/OVMF.fd
