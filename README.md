@@ -40,12 +40,40 @@ guest is meant to be protected from.
 | Track  | Built from                | Tag                           | When                                                                                                        |
 |--------|---------------------------|-------------------------------|-------------------------------------------------------------------------------------------------------------|
 | Stable | Latest `edk2-stable*` tag | `ovmf-edk2-stableYYYYMM-rN`   | Each upstream stable release (roughly quarterly). `rN` increments when only this repository's build changes |
-| HEAD   | edk2 `master`             | `ovmf-head-YYYYMMDD-<commit>` | Daily, if upstream has changed. Published as a prerelease; the last 30 are kept                             |
+| HEAD   | edk2 `master`             | `ovmf-head-YYYYMMDD-<commit>` | Daily, if upstream or this repository has changed. Published as a prerelease; the last 30 are kept          |
 
-Every release will contain both variants, `SHA256SUMS`, and a `PROVENANCE.txt`
-recording the upstream commit, this repository's commit, the toolchain lock and
-the build flags. Every image will carry SLSA build provenance, which
-`gh attestation verify` can check.
+Every release contains:
+
+| Asset                                             | Contents                                                                                                                                             |
+|---------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `OVMF.fd`, `OVMF-noncc.fd`                        | The two variants                                                                                                                                     |
+| `SHA256SUMS`                                      | Digests of every other asset                                                                                                                         |
+| `PROVENANCE.txt`                                  | The edk2 ref and commit, this repository's commit, the nixpkgs commit, the `flake.lock` digest, the patches, the build flags and the Nix derivations |
+| `flake.lock`                                      | The lock the images were built from. For HEAD releases it pins edk2 `master` instead of the stable tag                                               |
+| `THIRD-PARTY.txt`, `SOURCES.txt`, `LICENSE-*.txt` | The third-party code compiled into the images, every compiled file with its SPDX licence, and the licence texts                                      |
+
+Both images carry SLSA build provenance. Each track signs with its own
+workflow, so a check for a stable image also rejects HEAD images:
+
+```sh
+gh attestation verify OVMF.fd --repo digicatapult/fabai-boot-chain \
+  --signer-workflow digicatapult/fabai-boot-chain/.github/workflows/release.yml \
+  --source-ref refs/tags/<release tag>
+```
+
+HEAD images are signed by `release-head.yml`, with source ref `refs/heads/main`.
+
+### Making a stable release
+
+1. Update `edk2` in `flake.nix` to the new `edk2-stable*` tag, and run
+   `nix flake lock`. Move the nixpkgs pin at the same time, if at all. Merge
+   the change to `main` once CI is green.
+2. Push a tag `ovmf-<edk2 tag>-r1` on that `main` commit. For a rebuild of the
+   same edk2 release with changes in this repository only, increment `rN`.
+3. [`release.yml`](.github/workflows/release.yml) checks that the tag matches
+   the edk2 commit in `flake.lock` and is on `main`, runs the verified build
+   ([`build.yml`](.github/workflows/build.yml)), then waits for approval in the
+   `release` environment before attesting and publishing.
 
 Only stable `OVMF.fd` images are intended for production. HEAD builds pick up
 upstream security fixes as they land, for testing ahead of the next stable
@@ -70,7 +98,7 @@ sha256sum result/*.fd
 
 Compare the digest with the release's `SHA256SUMS`. Digests change whenever the
 edk2 or nixpkgs pin moves, so each release records its own rather than this
-README.
+README. For a HEAD release, first replace `flake.lock` with the release's own.
 
 CI builds each variant on two runner images, with a second built from scratch on
 one of them, and fails unless all three images are identical. It also checks
@@ -93,6 +121,13 @@ The serial and debug console logs are uploaded as `boot-logs-<variant>`
 whether the test passes or fails: `.#verify.boot-run-<variant>` boots and
 records the logs with a verdict, and `.#verify.boot-<variant>` fails unless
 that verdict is PASS.
+
+CI also rebuilds both variants to list every file the compiler read
+(`nix build .#verify.licences`). It fails if an edk2 submodule is compiled in,
+or a compiled file carries an SPDX licence, that
+[`nix/third-party.nix`](nix/third-party.nix) doesn't cover. The release assets'
+licence texts come from that list, so they can't silently fall behind an edk2
+update. Today the only compiled submodule is OpenSSL.
 
 `nix flake check` runs actionlint, ShellCheck, a check that every action is
 pinned to a full commit SHA and every workflow starts from `permissions: {}`,

@@ -68,6 +68,13 @@
         boot-noncc = bootTests.noncc;
         boot-run-cc = bootTests.cc.run;
         boot-run-noncc = bootTests.noncc.run;
+
+        # Licence texts for the third-party code compiled into either image,
+        # shipped with every release.
+        licences = pkgs.callPackage ./nix/licences.nix {
+          src = edk2;
+          images = builtins.attrValues firmware;
+        };
       };
 
       checks = nixpkgs.lib.genAttrs lintSystems (
