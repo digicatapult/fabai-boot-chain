@@ -76,6 +76,42 @@ CI builds each variant on two runner images, with a second built from scratch on
 one of them, and fails unless all three images are identical. It also checks
 that the non-confidential patch leaves `OVMF.fd` byte-for-byte unchanged.
 
+## Testing
+
+CI boots both images in QEMU (`nix build .#verify.boot-cc` and
+`.#verify.boot-noncc`), with a test kernel and initrd whose `/init` prints a
+marker. QEMU emulates the CPU (TCG, `-cpu max`), so the test doesn't depend on
+the runner's KVM support, and the guest CPU always offers 1 GiB pages.
+
+- `OVMF-noncc.fd` must reach `/init`, and its debug log must show 1 GiB page
+  tables.
+- `OVMF.fd` must refuse the kernel. Without SEV-SNP there is no hashes table
+  to check the kernel against, so it stops at "No bootable option was found".
+  It must also write nothing to QEMU's debug console.
+
+`nix flake check` runs actionlint, ShellCheck, a check that every action is
+pinned to a full commit SHA and every workflow starts from `permissions: {}`,
+and the Renovate config validator. It doesn't build firmware, so it also runs
+on `aarch64-linux`.
+
+A separate CI job checks that the patches still apply to edk2 `master`. That
+job is advisory: it can fail because of upstream changes alone, and it gives
+early warning before the next stable release.
+
+## Dependency updates
+
+[Renovate](renovate.json) uses Digital Catapult's shared preset, with stricter
+rules for this repository:
+
+- Action updates wait 7 days and are never automerged.
+- Renovate opens PRs for new Nix releases used by
+  [`install-nix`](.github/actions/install-nix/action.yml), but can't update the
+  installer's SHA-256. Update `NIX_INSTALLER_SHA256` in the same PR; CI fails
+  until it matches.
+- `flake.lock` is only updated by hand. A new nixpkgs changes the compiler, so
+  it changes the firmware bytes and the launch measurement. It moves only
+  together with an edk2 stable release.
+
 ## Related repositories
 
 - [digicatapult/fabai-measure-image-action](https://github.com/digicatapult/fabai-measure-image-action):

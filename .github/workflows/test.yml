@@ -13,7 +13,8 @@ concurrency:
 
 jobs:
   # Each variant is built on two runner images. On the first, it is then built
-  # again from scratch, which Nix compares byte for byte with the first build.
+  # again from scratch, which Nix compares byte for byte with the first build,
+  # and boot-tested.
   build:
     name: Build ${{ matrix.variant }} (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
@@ -40,11 +41,12 @@ jobs:
         run: nix build --print-build-logs --out-link result ".#ovmf-${VARIANT}"
 
       - name: Rebuild and compare
+        id: rebuild
         if: matrix.runner == 'ubuntu-24.04'
         run: nix build --rebuild --keep-failed --out-link result ".#ovmf-${VARIANT}"
 
       - name: Keep both images if the rebuild differs
-        if: failure()
+        if: failure() && steps.rebuild.outcome == 'failure'
         run: |
           mkdir -p nondeterministic
           out="$(readlink -f result)"
@@ -55,7 +57,7 @@ jobs:
           done
 
       - name: Upload both images if the rebuild differs
-        if: failure()
+        if: failure() && steps.rebuild.outcome == 'failure'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nondeterministic-${{ matrix.variant }}-${{ matrix.runner }}
@@ -82,6 +84,25 @@ jobs:
         with:
           name: ovmf-${{ matrix.variant }}-${{ matrix.runner }}
           path: out
+          if-no-files-found: error
+
+      # noncc must boot a test kernel and cc must refuse to (nix/boot-test.nix).
+      # On failure, the build log ends with the tail of both console logs.
+      - name: Boot test
+        id: boot-test
+        if: matrix.runner == 'ubuntu-24.04'
+        run: |
+          nix build --print-build-logs --out-link boot-test ".#verify.boot-${VARIANT}"
+          mkdir -p boot-logs
+          cp boot-test/*.log boot-logs/
+
+      # Not named ovmf-*, which the compare job downloads.
+      - name: Upload boot logs
+        if: steps.boot-test.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: boot-logs-${{ matrix.variant }}
+          path: boot-logs
           if-no-files-found: error
 
   # Two independent builders must produce the same bytes.
@@ -143,3 +164,55 @@ jobs:
         run: |
           sha256sum patched/OVMF.fd unpatched/OVMF.fd | tee -a "$GITHUB_STEP_SUMMARY"
           cmp patched/OVMF.fd unpatched/OVMF.fd
+
+  # actionlint (with ShellCheck), ShellCheck, the workflow pinning policy and
+  # the Renovate config, all from the pinned nixpkgs (nix/lint.nix).
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: ./.github/actions/install-nix
+
+      - name: Flake check
+        run: nix flake check --print-build-logs
+
+  # Early warning that a patch needs rebasing before the next edk2 stable
+  # release. Advisory only: upstream commits can break it without any change
+  # here, so it is not a required check.
+  patch-master:
+    name: Patches apply to edk2 master
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No checkout and no blobs: git apply --cached fetches only the blobs the
+      # patches touch.
+      - name: Fetch edk2 master
+        run: |
+          git clone --quiet --depth 1 --branch master --filter=blob:none --no-checkout \
+            https://github.com/tianocore/edk2 "$RUNNER_TEMP/edk2"
+          git -C "$RUNNER_TEMP/edk2" read-tree HEAD
+
+      - name: Apply patches
+        run: |
+          edk2="$RUNNER_TEMP/edk2"
+          printf 'tianocore/edk2 master at %s\n\n' "$(git -C "$edk2" rev-parse HEAD)" |
+            tee -a "$GITHUB_STEP_SUMMARY"
+          for patch in "$PWD"/firmware/edk2/patches/*.patch; do
+            git -C "$edk2" apply --cached --verbose "$patch"
+          done

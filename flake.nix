@@ -31,12 +31,22 @@
           }
           // args
         );
-    in
-    {
-      packages.${system} = {
+
+      firmware = {
         ovmf-cc = ovmf { variant = "cc"; };
         ovmf-noncc = ovmf { variant = "noncc"; };
       };
+
+      bootTest = image: pkgs.callPackage ./nix/boot-test.nix { firmware = image; };
+
+      # Linting builds no firmware, so it also runs on aarch64 machines.
+      lintSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+    in
+    {
+      packages.${system} = firmware;
 
       # Builds that exist only to verify the published ones; never released.
       legacyPackages.${system}.verify = {
@@ -46,6 +56,14 @@
           variant = "cc";
           applyNonCcPatch = false;
         };
+
+        # QEMU boot tests: noncc boots a test kernel, cc refuses to.
+        boot-cc = bootTest firmware.ovmf-cc;
+        boot-noncc = bootTest firmware.ovmf-noncc;
       };
+
+      checks = nixpkgs.lib.genAttrs lintSystems (
+        lintSystem: nixpkgs.legacyPackages.${lintSystem}.callPackages ./nix/lint.nix { }
+      );
     };
 }
