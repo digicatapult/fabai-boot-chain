@@ -1,0 +1,23 @@
+name: Fetch flake inputs
+description: >-
+  Fetch the flake inputs into the Nix store before anything evaluates them.
+  Fetching edk2 with its submodules prints around 100,000 lines of git progress
+  and refs, which buried the build logs, so the output goes to a file and is
+  only printed if the fetch fails. Optionally re-locks edk2 to a commit on
+  master first, for the HEAD release track.
+
+inputs:
+  edk2-rev:
+    description: >-
+      Full commit SHA on tianocore/edk2 master to build instead of the revision
+      in flake.lock. Rewrites flake.lock in the workspace. Empty keeps the lock.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch flake inputs
+      shell: bash
+      env:
+        EDK2_REV: ${{ inputs.edk2-rev }}
+      run: bash "$GITHUB_ACTION_PATH/fetch-inputs.sh"

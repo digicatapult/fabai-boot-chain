@@ -1,0 +1,110 @@
+name: Release HEAD
+
+# Daily prerelease of edk2 master with this repository's overlay, skipped when
+# neither has changed since the last HEAD release. Never marked latest; the
+# newest 30 are kept. Attested by this workflow's own job, so its images never
+# pass a --signer-workflow check for release.yml.
+
+on:
+  schedule:
+    - cron: "00 8 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    # Only main is released; the release-head environment enforces this too.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.plan.outputs.skip }}
+      edk2-rev: ${{ steps.plan.outputs.edk2-rev }}
+      tag: ${{ steps.plan.outputs.tag }}
+      title: ${{ steps.plan.outputs.title }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve edk2 master and check earlier releases
+        id: plan
+        run: bash scripts/release/head-plan.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  build:
+    name: Firmware
+    needs: plan
+    if: needs.plan.outputs.skip == 'false'
+    uses: ./.github/workflows/build.yml
+    with:
+      edk2-rev: ${{ needs.plan.outputs.edk2-rev }}
+    permissions:
+      contents: read
+
+  publish:
+    name: Publish
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release-head
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+
+      - name: Assemble release
+        run: bash scripts/release/assemble.sh
+        env:
+          TRACK: head
+          TAG: ${{ needs.plan.outputs.tag }}
+          EDK2_REF: master
+          EDK2_REV: ${{ needs.plan.outputs.edk2-rev }}
+          CC_SHA256: ${{ needs.build.outputs.cc-sha256 }}
+          NONCC_SHA256: ${{ needs.build.outputs.noncc-sha256 }}
+          ARTIFACTS: artifacts
+          DIST: dist
+          NOTES: ${{ runner.temp }}/notes.md
+
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/OVMF.fd
+            dist/OVMF-noncc.fd
+
+      - name: Publish prerelease
+        run: bash scripts/release/publish.sh
+        env:
+          TRACK: head
+          TAG: ${{ needs.plan.outputs.tag }}
+          TITLE: ${{ needs.plan.outputs.title }}
+          DIST: dist
+          NOTES: ${{ runner.temp }}/notes.md
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Prune old HEAD releases
+        run: bash scripts/release/head-prune.sh
+        env:
+          KEEP: "30"
+          GH_TOKEN: ${{ github.token }}
