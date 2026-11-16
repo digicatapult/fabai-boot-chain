@@ -1,23 +1,55 @@
 name: Fetch flake inputs
 description: >-
-  Fetch the flake inputs into the Nix store before anything evaluates them.
-  Fetching edk2 with its submodules prints around 100,000 lines of git progress
-  and refs, which buried the build logs, so the output goes to a file and is
-  only printed if the fetch fails. Optionally re-locks edk2 to a commit on
-  master first, for the HEAD release track.
+  Make sure the flake inputs are in the Actions cache, and output the cache key
+  for restore-inputs. Fetching edk2 with its submodules takes 5-6 minutes, so
+  it is done at most once per flake.lock: on a cache hit, nothing is fetched or
+  downloaded here. The cache key is the SHA-256 of flake.lock, and every
+  cached source is content-addressed by the narHash that flake.lock pins, so a
+  tampered entry can't be imported (see restore-inputs). Optionally re-locks
+  edk2 to a commit on master first, for the HEAD release track; that needs the
+  fetch, so HEAD builds always fetch once and then share it.
 
 inputs:
   edk2-rev:
     description: >-
       Full commit SHA on tianocore/edk2 master to build instead of the revision
-      in flake.lock. Rewrites flake.lock in the workspace. Empty keeps the lock.
+      in flake.lock. Rewrites flake.lock, which is cached along with the inputs
+      so that restore-inputs uses the same lock. Empty keeps the lock.
     default: ""
+
+outputs:
+  cache-key:
+    description: Actions cache key holding the flake inputs and flake.lock.
+    value: ${{ steps.prepare.outputs.cache-key }}
 
 runs:
   using: composite
   steps:
-    - name: Fetch flake inputs
+    - name: Lock
+      id: prepare
       shell: bash
       env:
         EDK2_REV: ${{ inputs.edk2-rev }}
-      run: bash "$GITHUB_ACTION_PATH/fetch-inputs.sh"
+      run: bash "$GITHUB_ACTION_PATH/fetch-inputs.sh" prepare
+
+    - name: Look up cached inputs
+      id: lookup
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/flake-inputs
+        key: ${{ steps.prepare.outputs.cache-key }}
+        lookup-only: true
+
+    - name: Fetch and export inputs
+      if: steps.lookup.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        CACHE_DIR: ${{ runner.temp }}/flake-inputs
+      run: bash "$GITHUB_ACTION_PATH/fetch-inputs.sh" export
+
+    - name: Cache inputs
+      if: steps.lookup.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/flake-inputs
+        key: ${{ steps.prepare.outputs.cache-key }}
