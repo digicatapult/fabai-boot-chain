@@ -1,0 +1,58 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "The org preset leaves the nix manager disabled, so flake.lock is never bumped: any toolchain change alters the firmware bytes and therefore the launch measurement, so nixpkgs only moves by hand together with edk2."
+  ],
+  "extends": [
+    "github>digicatapult/renovate-config",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "github-actions": {
+    "packageRules": [
+      {
+        "description": "These workflows build, and will sign, firmware whose digest is part of the launch measurement. Every action update waits a week and then gets a human review, overriding the org preset's automerge for trusted actions and folding them back into the reviewed group. This rule must stay in the manager block so it comes after the preset's own github-actions rules.",
+        "matchManagers": [
+          "github-actions"
+        ],
+        "groupName": "GitHub Actions - updates",
+        "automerge": false,
+        "minimumReleaseAge": "7 days"
+      }
+    ]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Nix version installed by the install-nix composite action",
+      "managerFilePatterns": [
+        "/^\\.github/actions/install-nix/action\\.yml$/"
+      ],
+      "matchStrings": [
+        "NIX_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)\\s"
+      ],
+      "depNameTemplate": "NixOS/nix",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Renovate can't compute the installer hash, so CI fails at the checksum step until someone updates NIX_INSTALLER_SHA256 in the same PR.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchPackageNames": [
+        "NixOS/nix"
+      ],
+      "labels": [
+        "dependencies",
+        "nix"
+      ],
+      "automerge": false,
+      "minimumReleaseAge": "7 days",
+      "prBodyNotes": [
+        "> [!IMPORTANT]\n> Before merging, set `NIX_INSTALLER_SHA256` in `.github/actions/install-nix/action.yml` to the contents of `https://releases.nixos.org/nix/nix-{{{newVersion}}}/install.sha256`. Until then, CI fails at the installer checksum."
+      ]
+    }
+  ]
+}
