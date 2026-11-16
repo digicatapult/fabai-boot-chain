@@ -1,0 +1,29 @@
+name: Restore flake inputs
+description: >-
+  Import the flake inputs, and the flake.lock they were locked with, from the
+  Actions cache entry made by fetch-inputs, so that no job fetches edk2 again.
+  The sources are content-addressed: Nix's daemon checks each one against its
+  store path, which flake.lock's narHash determines, and refuses anything that
+  doesn't match. No trusted-user or signing-key settings are involved.
+
+inputs:
+  cache-key:
+    description: The cache-key output of fetch-inputs.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Download cached inputs
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/flake-inputs
+        key: ${{ inputs.cache-key }}
+        fail-on-cache-miss: true
+
+    - name: Import inputs
+      shell: bash
+      env:
+        CACHE_KEY: ${{ inputs.cache-key }}
+        CACHE_DIR: ${{ runner.temp }}/flake-inputs
+      run: bash "$GITHUB_ACTION_PATH/restore-inputs.sh"

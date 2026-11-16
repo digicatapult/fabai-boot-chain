@@ -36,12 +36,14 @@ jobs:
       - name: Install Nix
         uses: ./.github/actions/install-nix
 
-      # Evaluating the firmware packages needs the edk2 source.
-      - name: Fetch flake inputs
-        uses: ./.github/actions/fetch-inputs
-
-      - name: Flake check
-        run: nix flake check --print-build-logs
+      # The lint checks of `nix flake check`, without evaluating the firmware
+      # packages: those need the edk2 source, and the Firmware jobs evaluate
+      # them anyway. Flake inputs are fetched lazily, so edk2 isn't fetched.
+      - name: Lint checks
+        run: |
+          system="$(nix eval --raw --impure --expr builtins.currentSystem)"
+          mapfile -t checks < <(nix eval --json ".#checks.${system}" --apply builtins.attrNames | jq -r '.[]')
+          nix build --print-build-logs --no-link "${checks[@]/#/.#checks.${system}.}"
 
   # Early warning that a patch needs rebasing before the next edk2 stable
   # release. Advisory only: upstream commits can break it without any change

@@ -5,7 +5,7 @@ chain, including the AMD SEV-SNP guest firmware (OVMF) built from unmodified
 [tianocore/edk2](https://github.com/tianocore/edk2) source and published with
 Sigstore build provenance.
 
-## Forking edk2?
+## Forking edk2
 
 A confidential guest's launch measurement covers the firmware image, so anyone
 verifying a measurement is trusting the firmware source. With a fork, a reviewer
@@ -127,14 +127,22 @@ CI also rebuilds both variants to list every file the compiler read
 or a compiled file carries an SPDX licence, that
 [`nix/third-party.nix`](nix/third-party.nix) doesn't cover. The release assets'
 licence texts come from that list, so they can't silently fall behind an edk2
-update. Today the only compiled submodule is OpenSSL.
+update. Today the only compiled submodule is OpenSSL, and only in `OVMF.fd`:
+it comes in with the SEV hash verifier, which `OVMF-noncc.fd` replaces.
 
 `nix flake check` runs actionlint, ShellCheck, a check that every action is
 pinned to a full commit SHA and every workflow starts from `permissions: {}`,
 and the Renovate config validator. It doesn't build firmware, so it also runs
 on `aarch64-linux`. The pinning check reads `uses:` line by line, so it accepts
 only block style (`uses: <ref>`) and rejects any other form, such as
-`{ uses: … }`, rather than skip it.
+`{ uses: … }`, rather than skip it. CI builds the same checks without evaluating the
+firmware packages, so the lint job never needs the edk2 source.
+
+Fetching edk2 with its submodules takes 5-6 minutes, so CI does it at most once
+per `flake.lock`: one job stores the inputs in the Actions cache, keyed by the
+SHA-256 of `flake.lock`, and every other job imports them from there. The
+cached sources are content-addressed by the `narHash` values in `flake.lock`,
+so Nix refuses a cache entry whose contents don't match the lock.
 
 A separate CI job checks that the patches still apply to edk2 `master`. That
 job is advisory: it can fail because of upstream changes alone, and it gives

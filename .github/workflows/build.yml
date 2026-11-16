@@ -32,11 +32,38 @@ on:
 permissions: {}
 
 jobs:
+  # Fetches edk2 (with submodules) and nixpkgs once into the Actions cache,
+  # unless flake.lock's inputs are already cached; every other job imports
+  # them from there (.github/actions/{fetch,restore}-inputs).
+  flake-inputs:
+    name: Flake inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      cache-key: ${{ steps.fetch.outputs.cache-key }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: ./.github/actions/install-nix
+
+      - name: Fetch flake inputs
+        id: fetch
+        uses: ./.github/actions/fetch-inputs
+        with:
+          edk2-rev: ${{ inputs.edk2-rev }}
+
   # Each variant is built on two runner images. On the first, it is then built
   # again from scratch, which Nix compares byte for byte with the first build,
   # and boot-tested.
   build:
     name: Build ${{ matrix.variant }} (${{ matrix.runner }})
+    needs: flake-inputs
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
@@ -57,10 +84,10 @@ jobs:
       - name: Install Nix
         uses: ./.github/actions/install-nix
 
-      - name: Fetch flake inputs
-        uses: ./.github/actions/fetch-inputs
+      - name: Restore flake inputs
+        uses: ./.github/actions/restore-inputs
         with:
-          edk2-rev: ${{ inputs.edk2-rev }}
+          cache-key: ${{ needs.flake-inputs.outputs.cache-key }}
 
       - name: Build
         run: nix build --print-build-logs --out-link result ".#ovmf-${VARIANT}"
@@ -183,6 +210,7 @@ jobs:
   # the cc image while NON_CC_BUILD is FALSE.
   patch-inert:
     name: Patch is inert for cc
+    needs: flake-inputs
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
@@ -196,10 +224,10 @@ jobs:
       - name: Install Nix
         uses: ./.github/actions/install-nix
 
-      - name: Fetch flake inputs
-        uses: ./.github/actions/fetch-inputs
+      - name: Restore flake inputs
+        uses: ./.github/actions/restore-inputs
         with:
-          edk2-rev: ${{ inputs.edk2-rev }}
+          cache-key: ${{ needs.flake-inputs.outputs.cache-key }}
 
       - name: Build with and without the patch
         run: |
@@ -215,6 +243,7 @@ jobs:
   # code appears that nix/third-party.nix doesn't cover (nix/licences.nix).
   licences:
     name: Licences of compiled code
+    needs: flake-inputs
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
@@ -228,10 +257,10 @@ jobs:
       - name: Install Nix
         uses: ./.github/actions/install-nix
 
-      - name: Fetch flake inputs
-        uses: ./.github/actions/fetch-inputs
+      - name: Restore flake inputs
+        uses: ./.github/actions/restore-inputs
         with:
-          edk2-rev: ${{ inputs.edk2-rev }}
+          cache-key: ${{ needs.flake-inputs.outputs.cache-key }}
 
       - name: Scan compiled sources
         run: |
