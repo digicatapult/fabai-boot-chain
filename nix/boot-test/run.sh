@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Boots a firmware image in QEMU with a test kernel and initrd, then checks the
-# serial and debug console logs, which it writes to the directory in $1.
+# serial and debug console logs. Writes both logs and a `verdict` file (PASS,
+# or FAIL with the reasons) to the directory in $1, and exits 0 either way, so
+# the logs survive a failure; check.sh turns the verdict into the result.
 # Environment, set by boot-test.nix:
 #   QEMU, FIRMWARE, KERNEL, INITRD, MARKER, TIMEOUT_SECONDS
 #   EXPECT=boot    the firmware must hand over to the kernel and reach /init
@@ -95,17 +97,11 @@ case "$EXPECT" in
     ;;
 esac
 
-if ((${#failures[@]} == 0)); then
-  printf 'PASS (%s)\n' "$EXPECT"
-  exit 0
-fi
-
-printf 'FAIL (%s):\n' "$EXPECT"
-printf '  - %s\n' "${failures[@]}"
-printf '\n--- serial console (last 200 lines) ---\n'
-tail -n 200 "$serial"
-if [[ -s "$debugcon" ]]; then
-  printf '\n--- debug console (last 200 lines) ---\n'
-  tail -n 200 "$debugcon"
-fi
-exit 1
+{
+  if ((${#failures[@]} == 0)); then
+    printf 'PASS (%s)\n' "$EXPECT"
+  else
+    printf 'FAIL (%s):\n' "$EXPECT"
+    printf '  - %s\n' "${failures[@]}"
+  fi
+} | tee "$log_dir/verdict"

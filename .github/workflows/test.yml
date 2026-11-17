@@ -87,23 +87,29 @@ jobs:
           if-no-files-found: error
 
       # noncc must boot a test kernel and cc must refuse to (nix/boot-test.nix).
-      # On failure, the build log ends with the tail of both console logs.
-      - name: Boot test
-        id: boot-test
+      # The run records the console logs and a verdict whatever the outcome,
+      # so the logs are uploaded before the test step judges the verdict. On
+      # failure, the test's build log also ends with the tail of both logs.
+      - name: Boot run
+        id: boot-run
         if: matrix.runner == 'ubuntu-24.04'
         run: |
-          nix build --print-build-logs --out-link boot-test ".#verify.boot-${VARIANT}"
+          nix build --print-build-logs --out-link boot-run ".#verify.boot-run-${VARIANT}"
           mkdir -p boot-logs
-          cp boot-test/*.log boot-logs/
+          cp boot-run/* boot-logs/
 
       # Not named ovmf-*, which the compare job downloads.
       - name: Upload boot logs
-        if: steps.boot-test.outcome == 'success'
+        if: steps.boot-run.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: boot-logs-${{ matrix.variant }}
           path: boot-logs
           if-no-files-found: error
+
+      - name: Boot test
+        if: matrix.runner == 'ubuntu-24.04'
+        run: nix build --print-build-logs --no-link ".#verify.boot-${VARIANT}"
 
   # Two independent builders must produce the same bytes.
   compare:

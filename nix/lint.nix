@@ -42,6 +42,7 @@ in
 
   workflow-policy = check "workflow-policy" [ ] ''
     bash nix/lint/workflow-policy.sh
+    bash nix/lint/workflow-policy-test.sh
   '';
 
   # Validates syntax and option names only; presets are not fetched, so this
