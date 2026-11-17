@@ -6,6 +6,8 @@
 #          the blob verifier denies the kernel and BDS gives up. It must also
 #          stay silent on QEMU's debug console, as a RELEASE build.
 # QEMU, the kernel and busybox all come from the pinned nixpkgs.
+# Two derivations: `run` boots and records the logs and a verdict, and this one
+# fails unless the verdict is PASS. `run` is exposed as `passthru.run`.
 {
   stdenv,
   runCommand,
@@ -42,9 +44,10 @@ let
   };
 
   kernel = linuxPackages.kernel;
-in
-runCommand "ovmf-boot-test-${firmware.variant}"
-  {
+
+  # Boots once and records the logs and a verdict. It succeeds whatever the
+  # verdict, so CI can upload the logs when the test fails.
+  run = runCommand "ovmf-boot-run-${firmware.variant}" {
     env = {
       QEMU = "${qemu_test}/bin/qemu-system-x86_64";
       FIRMWARE = "${firmware}/${firmware.image}";
@@ -57,7 +60,14 @@ runCommand "ovmf-boot-test-${firmware.variant}"
     };
 
     meta.platforms = [ "x86_64-linux" ];
+  } ''bash ${./boot-test/run.sh} "$out"'';
+in
+# The test itself: fails unless the verdict is PASS.
+runCommand "ovmf-boot-test-${firmware.variant}"
+  {
+    passthru = { inherit run; };
+    meta.platforms = [ "x86_64-linux" ];
   }
   ''
-    bash ${./boot-test/run.sh} "$out"
+    bash ${./boot-test/check.sh} ${run} "$out"
   ''

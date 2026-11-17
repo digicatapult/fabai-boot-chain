@@ -89,10 +89,17 @@ the runner's KVM support, and the guest CPU always offers 1 GiB pages.
   to check the kernel against, so it stops at "No bootable option was found".
   It must also write nothing to QEMU's debug console.
 
+The serial and debug console logs are uploaded as `boot-logs-<variant>`
+whether the test passes or fails: `.#verify.boot-run-<variant>` boots and
+records the logs with a verdict, and `.#verify.boot-<variant>` fails unless
+that verdict is PASS.
+
 `nix flake check` runs actionlint, ShellCheck, a check that every action is
 pinned to a full commit SHA and every workflow starts from `permissions: {}`,
 and the Renovate config validator. It doesn't build firmware, so it also runs
-on `aarch64-linux`.
+on `aarch64-linux`. The pinning check reads `uses:` line by line, so it accepts
+only block style (`uses: <ref>`) and rejects any other form, such as
+`{ uses: … }`, rather than skip it.
 
 A separate CI job checks that the patches still apply to edk2 `master`. That
 job is advisory: it can fail because of upstream changes alone, and it gives

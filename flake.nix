@@ -38,6 +38,10 @@
       };
 
       bootTest = image: pkgs.callPackage ./nix/boot-test.nix { firmware = image; };
+      bootTests = {
+        cc = bootTest firmware.ovmf-cc;
+        noncc = bootTest firmware.ovmf-noncc;
+      };
 
       # Linting builds no firmware, so it also runs on aarch64 machines.
       lintSystems = [
@@ -57,9 +61,13 @@
           applyNonCcPatch = false;
         };
 
-        # QEMU boot tests: noncc boots a test kernel, cc refuses to.
-        boot-cc = bootTest firmware.ovmf-cc;
-        boot-noncc = bootTest firmware.ovmf-noncc;
+        # QEMU boot tests: noncc boots a test kernel, cc refuses to. Each
+        # boot-run-* always builds, with the logs and a verdict; boot-* fails
+        # unless the verdict is PASS.
+        boot-cc = bootTests.cc;
+        boot-noncc = bootTests.noncc;
+        boot-run-cc = bootTests.cc.run;
+        boot-run-noncc = bootTests.noncc.run;
       };
 
       checks = nixpkgs.lib.genAttrs lintSystems (
