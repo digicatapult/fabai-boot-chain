@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Called by action.yml. Run from the flake root.
-#   prepare  re-lock edk2 to EDK2_REV if set; write cache-key to GITHUB_OUTPUT
+#   prepare  re-lock edk2 to EDK2_REV if set; write key and transport (cache,
+#            or artifact for a re-lock) to GITHUB_OUTPUT
 #   export   fetch the inputs, then write them as a Nix binary cache, with
 #            flake.lock, to CACHE_DIR
 # Fetching edk2 with its submodules prints around 100,000 lines of git progress
@@ -36,10 +37,18 @@ prepare() {
   fi
 
   # Bump v1 to discard every cached entry, for example if the format changes.
-  local key
+  # flake.lock's own inputs go through the Actions cache; a re-locked edk2 is
+  # rarely built again, so it goes through an artifact of this run.
+  local key transport=cache
   key="flake-inputs-v1-$(sha256sum flake.lock | cut -d ' ' -f 1)"
-  printf 'edk2 %s, cache key %s\n' "$(jq -r '.nodes.edk2.locked.rev' flake.lock)" "$key"
-  printf 'cache-key=%s\n' "$key" >> "$GITHUB_OUTPUT"
+  if [[ -n "$EDK2_REV" ]]; then
+    transport=artifact
+  fi
+  printf 'edk2 %s, key %s, via %s\n' "$(jq -r '.nodes.edk2.locked.rev' flake.lock)" "$key" "$transport"
+  {
+    printf 'key=%s\n' "$key"
+    printf 'transport=%s\n' "$transport"
+  } >> "$GITHUB_OUTPUT"
 }
 
 export_inputs() {

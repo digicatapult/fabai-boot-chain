@@ -40,7 +40,7 @@ guest is meant to be protected from.
 | Track  | Built from                | Tag                           | When                                                                                                        |
 |--------|---------------------------|-------------------------------|-------------------------------------------------------------------------------------------------------------|
 | Stable | Latest `edk2-stable*` tag | `ovmf-edk2-stableYYYYMM-rN`   | Each upstream stable release (roughly quarterly). `rN` increments when only this repository's build changes |
-| HEAD   | edk2 `master`             | `ovmf-head-YYYYMMDD-<commit>` | Daily, if upstream or this repository has changed. Published as a prerelease; the last 30 are kept          |
+| HEAD   | edk2 `master`             | `ovmf-head-YYYYMMDD-<commit>` | By hand for now (daily later), if upstream or this repository changed. A prerelease; the last 30 are kept   |
 
 Every release contains:
 
@@ -135,14 +135,22 @@ pinned to a full commit SHA and every workflow starts from `permissions: {}`,
 and the Renovate config validator. It doesn't build firmware, so it also runs
 on `aarch64-linux`. The pinning check reads `uses:` line by line, so it accepts
 only block style (`uses: <ref>`) and rejects any other form, such as
-`{ uses: … }`, rather than skip it. CI builds the same checks without evaluating the
-firmware packages, so the lint job never needs the edk2 source.
+`{ uses: … }`, rather than skip it. CI builds the same checks without
+evaluating the firmware packages, so the lint job never needs the edk2 source.
 
-Fetching edk2 with its submodules takes 5-6 minutes, so CI does it at most once
-per `flake.lock`: one job stores the inputs in the Actions cache, keyed by the
-SHA-256 of `flake.lock`, and every other job imports them from there. The
-cached sources are content-addressed by the `narHash` values in `flake.lock`,
-so Nix refuses a cache entry whose contents don't match the lock.
+Fetching edk2 with its submodules takes 5-6 minutes, so CI fetches at most once
+per run, in the `Flake inputs` job, and every other job imports the inputs from
+there. `flake.lock`'s own inputs also go into the Actions cache, keyed by the
+SHA-256 of `flake.lock`, so a later run with the same lock fetches nothing. A
+run can only restore entries saved on its own branch or on `main`, so
+[`cache.yml`](.github/workflows/cache.yml) keeps an entry for `main`'s
+`flake.lock`: it runs when `flake.lock` changes on `main`, by hand, and twice a
+week, because entries unused for 7 days are evicted. Branch and tag runs with
+`main`'s lock then hit it, and a branch that changes `flake.lock` fetches once,
+then hits its own entry. HEAD builds re-lock edk2 to `master`, so they always
+fetch, and pass the inputs to their other jobs as a one-day artifact rather
+than a cache entry. The sources are content-addressed by the `narHash` values
+in `flake.lock`, so Nix refuses any copy whose contents don't match the lock.
 
 A separate CI job checks that the patches still apply to edk2 `master`. That
 job is advisory: it can fail because of upstream changes alone, and it gives

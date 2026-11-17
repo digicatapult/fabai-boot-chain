@@ -32,9 +32,10 @@ on:
 permissions: {}
 
 jobs:
-  # Fetches edk2 (with submodules) and nixpkgs once into the Actions cache,
-  # unless flake.lock's inputs are already cached; every other job imports
-  # them from there (.github/actions/{fetch,restore}-inputs).
+  # Fetches edk2 (with submodules) and nixpkgs at most once per run; every
+  # other job imports them from here (.github/actions/{fetch,restore}-inputs).
+  # flake.lock's inputs go through the Actions cache, so a hit fetches
+  # nothing; HEAD builds' re-locked inputs go through a one-day artifact.
   flake-inputs:
     name: Flake inputs
     runs-on: ubuntu-24.04
@@ -42,7 +43,8 @@ jobs:
     permissions:
       contents: read
     outputs:
-      cache-key: ${{ steps.fetch.outputs.cache-key }}
+      key: ${{ steps.fetch.outputs.key }}
+      transport: ${{ steps.fetch.outputs.transport }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,7 +89,8 @@ jobs:
       - name: Restore flake inputs
         uses: ./.github/actions/restore-inputs
         with:
-          cache-key: ${{ needs.flake-inputs.outputs.cache-key }}
+          key: ${{ needs.flake-inputs.outputs.key }}
+          transport: ${{ needs.flake-inputs.outputs.transport }}
 
       - name: Build
         run: nix build --print-build-logs --out-link result ".#ovmf-${VARIANT}"
@@ -143,23 +146,29 @@ jobs:
           if-no-files-found: error
 
       # noncc must boot a test kernel and cc must refuse to (nix/boot-test.nix).
-      # On failure, the build log ends with the tail of both console logs.
-      - name: Boot test
-        id: boot-test
+      # The run records the console logs and a verdict whatever the outcome,
+      # so the logs are uploaded before the test step judges the verdict. On
+      # failure, the test's build log also ends with the tail of both logs.
+      - name: Boot run
+        id: boot-run
         if: matrix.runner == 'ubuntu-24.04'
         run: |
-          nix build --print-build-logs --out-link boot-test ".#verify.boot-${VARIANT}"
+          nix build --print-build-logs --out-link boot-run ".#verify.boot-run-${VARIANT}"
           mkdir -p boot-logs
-          cp boot-test/*.log boot-logs/
+          cp boot-run/* boot-logs/
 
       # Not named ovmf-*, which the compare job downloads.
       - name: Upload boot logs
-        if: steps.boot-test.outcome == 'success'
+        if: steps.boot-run.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: boot-logs-${{ matrix.variant }}
           path: boot-logs
           if-no-files-found: error
+
+      - name: Boot test
+        if: matrix.runner == 'ubuntu-24.04'
+        run: nix build --print-build-logs --no-link ".#verify.boot-${VARIANT}"
 
   # Two independent builders must produce the same bytes.
   compare:
@@ -207,14 +216,18 @@ jobs:
           exit "$status"
 
   # The NON_CC_BUILD patch is applied to both variants, so it must not change
-  # the cc image while NON_CC_BUILD is FALSE.
-  patch-inert:
-    name: Patch is inert for cc
+  # the cc image while NON_CC_BUILD is FALSE. Only the unpatched image is built
+  # here, alongside the matrix; it is compared with the digest the builders
+  # agreed on for the patched one.
+  cc-unpatched:
+    name: Build cc without patch
     needs: flake-inputs
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
+    outputs:
+      sha256: ${{ steps.digest.outputs.sha256 }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -227,17 +240,43 @@ jobs:
       - name: Restore flake inputs
         uses: ./.github/actions/restore-inputs
         with:
-          cache-key: ${{ needs.flake-inputs.outputs.cache-key }}
+          key: ${{ needs.flake-inputs.outputs.key }}
+          transport: ${{ needs.flake-inputs.outputs.transport }}
 
-      - name: Build with and without the patch
+      - name: Build
+        run: nix build --print-build-logs --out-link unpatched .#verify.cc-unpatched
+
+      - name: Record digest
+        id: digest
         run: |
-          nix build --print-build-logs --out-link patched .#ovmf-cc
-          nix build --print-build-logs --out-link unpatched .#verify.cc-unpatched
+          sha256="$(sha256sum unpatched/OVMF.fd | cut -d ' ' -f 1)"
+          printf 'OVMF.fd without the NON_CC_BUILD patch: %s\n' "$sha256" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf 'sha256=%s\n' "$sha256" >> "$GITHUB_OUTPUT"
 
+  patch-inert:
+    name: Patch is inert for cc
+    needs: [compare, cc-unpatched]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
       - name: Compare
+        env:
+          PATCHED: ${{ needs.compare.outputs.cc-sha256 }}
+          UNPATCHED: ${{ needs.cc-unpatched.outputs.sha256 }}
         run: |
-          sha256sum patched/OVMF.fd unpatched/OVMF.fd | tee -a "$GITHUB_STEP_SUMMARY"
-          cmp patched/OVMF.fd unpatched/OVMF.fd
+          printf 'with the patch:    %s\nwithout the patch: %s\n' "$PATCHED" "$UNPATCHED" |
+            tee -a "$GITHUB_STEP_SUMMARY"
+          for digest in "$PATCHED" "$UNPATCHED"; do
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || {
+              printf 'missing or malformed digest: "%s"\n' "$digest"
+              exit 1
+            }
+          done
+          [[ "$PATCHED" == "$UNPATCHED" ]] || {
+            printf 'the NON_CC_BUILD patch changes the cc image\n'
+            exit 1
+          }
 
   # Rebuilds both variants to list what they compile, and fails if third-party
   # code appears that nix/third-party.nix doesn't cover (nix/licences.nix).
@@ -260,7 +299,8 @@ jobs:
       - name: Restore flake inputs
         uses: ./.github/actions/restore-inputs
         with:
-          cache-key: ${{ needs.flake-inputs.outputs.cache-key }}
+          key: ${{ needs.flake-inputs.outputs.key }}
+          transport: ${{ needs.flake-inputs.outputs.transport }}
 
       - name: Scan compiled sources
         run: |
