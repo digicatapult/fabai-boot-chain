@@ -4,7 +4,9 @@
 #   TRACK           stable or head
 #   TAG             the release tag
 #   EDK2_REF        refs/tags/edk2-stable... (stable) or master (head)
-#   EDK2_REV        the edk2 commit build.yml reports it built
+#   EDK2_REV        the edk2 commit to release: from check-stable-tag.sh
+#                   (stable) or head-plan.sh (head)
+#   BUILT_EDK2_REV  the edk2 commit build.yml reports it built
 #   CC_SHA256, NONCC_SHA256   digests build.yml's builders agreed on
 #   ARTIFACTS       directory holding the downloaded artifacts
 #   DIST            output directory for the release assets
@@ -37,6 +39,9 @@ for variant in cc noncc; do
   cp "$dir/$image" "$DIST/$image"
 done
 
+[[ "$EDK2_REV" =~ ^[0-9a-f]{40}$ ]] || fail "EDK2_REV is not a commit SHA: '$EDK2_REV'"
+[[ "$BUILT_EDK2_REV" == "$EDK2_REV" ]] ||
+  fail "build.yml built edk2 '$BUILT_EDK2_REV', but this release is for $EDK2_REV"
 lock="$ARTIFACTS/ovmf-cc-${builder}/flake.lock"
 [[ "$(jq -r .nodes.edk2.locked.rev "$lock")" == "$EDK2_REV" ]] ||
   fail "the built flake.lock doesn't pin edk2 $EDK2_REV"

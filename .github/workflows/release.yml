@@ -62,10 +62,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download build artifacts
+      # Only what the release needs: not the boot logs, or a HEAD build's
+      # flake inputs (about 420 MB).
+      - name: Download images
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: ovmf-*
           path: artifacts
+
+      - name: Download licences
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: licences
+          path: artifacts/licences
 
       - name: Assemble release
         run: bash scripts/release/assemble.sh
@@ -74,6 +83,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           EDK2_REF: refs/tags/${{ needs.check-tag.outputs.edk2-tag }}
           EDK2_REV: ${{ needs.check-tag.outputs.edk2-rev }}
+          BUILT_EDK2_REV: ${{ needs.build.outputs.edk2-rev }}
           CC_SHA256: ${{ needs.build.outputs.cc-sha256 }}
           NONCC_SHA256: ${{ needs.build.outputs.noncc-sha256 }}
           ARTIFACTS: artifacts

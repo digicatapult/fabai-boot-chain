@@ -1,29 +1,51 @@
 name: Restore flake inputs
 description: >-
-  Import the flake inputs, and the flake.lock they were locked with, from the
-  Actions cache entry made by fetch-inputs, so that no job fetches edk2 again.
-  The sources are content-addressed: Nix's daemon checks each one against its
-  store path, which flake.lock's narHash determines, and refuses anything that
-  doesn't match. No trusted-user or signing-key settings are involved.
+  Import the flake inputs, and the flake.lock they were locked with, from where
+  fetch-inputs left them (the Actions cache, or an artifact of this run for a
+  re-locked HEAD build), so that no job fetches edk2 again. The sources are
+  content-addressed: Nix's daemon checks each one against its store path,
+  which flake.lock's narHash determines, and refuses anything that doesn't
+  match. No trusted-user or signing-key settings are involved.
 
 inputs:
-  cache-key:
-    description: The cache-key output of fetch-inputs.
+  key:
+    description: The key output of fetch-inputs.
+    required: true
+  transport:
+    description: The transport output of fetch-inputs; cache or artifact.
     required: true
 
 runs:
   using: composite
   steps:
+    - name: Check transport
+      shell: bash
+      env:
+        TRANSPORT: ${{ inputs.transport }}
+      run: |
+        if [[ "$TRANSPORT" != cache && "$TRANSPORT" != artifact ]]; then
+          printf 'transport must be cache or artifact, got: "%s"\n' "$TRANSPORT"
+          exit 1
+        fi
+
     - name: Download cached inputs
+      if: inputs.transport == 'cache'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/flake-inputs
-        key: ${{ inputs.cache-key }}
+        key: ${{ inputs.key }}
         fail-on-cache-miss: true
+
+    - name: Download inputs artifact
+      if: inputs.transport == 'artifact'
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: ${{ inputs.key }}
+        path: ${{ runner.temp }}/flake-inputs
 
     - name: Import inputs
       shell: bash
       env:
-        CACHE_KEY: ${{ inputs.cache-key }}
+        KEY: ${{ inputs.key }}
         CACHE_DIR: ${{ runner.temp }}/flake-inputs
       run: bash "$GITHUB_ACTION_PATH/restore-inputs.sh"
