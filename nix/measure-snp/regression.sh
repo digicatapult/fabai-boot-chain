@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Measurement regression vectors for measure-snp.sh's core, against Tinfoil's
-# published deployment of confidential-model-router v0.0.177 (cvmimage
-# v0.14.15, 8 vCPUs). Needs the network and a GitHub token, so it runs in
+# published deployment of confidential-model-router v0.0.178 (cvmimage
+# v0.14.19, 8 vCPUs). Needs the network and a GitHub token, so it runs in
 # test.yml's advisory "Measurement regression" job, not in Nix. Every Tinfoil
 # input is pinned by digest and its attestation verified before measuring:
 #   1. Tinfoil's OVMF.fd v0.0.4 must reproduce the published measurement.
@@ -15,16 +15,16 @@ set -euo pipefail
 readonly measure="$PWD/.github/actions/measure-snp/measure-snp.sh"
 PATH="$MEASURE_SNP_TOOLS/bin:$PATH"
 
-readonly deployment_url=https://github.com/tinfoilsh/confidential-model-router/releases/download/v0.0.177/tinfoil-deployment.json
-readonly deployment_sha256=6c7e382625c6d6b0e74b408b9f5fa28b39f1157b6a4aafe0613d378aa1204452
-readonly manifest_url=https://github.com/tinfoilsh/cvmimage/releases/download/v0.14.15/tinfoil-inference-v0.14.15-manifest.json
-readonly manifest_sha256=51166e30f9292cbddf28d493cac6f12d42a9b8aa75bb9a1b5cf759f02f8b7bf4
-readonly images=https://images.tinfoil.sh/cvm/tinfoil-inference-v0.14.15
+readonly deployment_url=https://github.com/tinfoilsh/confidential-model-router/releases/download/v0.0.178/tinfoil-deployment.json
+readonly deployment_sha256=d9beadbdb487812581c2432a6eaf2b6483d88565e70bd7eb39a78ad93eebbdba
+readonly manifest_url=https://github.com/tinfoilsh/cvmimage/releases/download/v0.14.19/tinfoil-inference-v0.14.19-manifest.json
+readonly manifest_sha256=9e6e8b1ffe6a95857621835084930bdeacff2bba015e064568b108de9d5bf81a
+readonly images=https://images.tinfoil.sh/cvm/tinfoil-inference-v0.14.19
 readonly tinfoil_ovmf_url=https://github.com/tinfoilsh/edk2/releases/download/v0.0.4/OVMF.fd
 readonly tinfoil_ovmf_sha256=78c890175928167a1bc095d4bf3bb4ad81de80cd7e4e9e683477fc359119c1c4
-readonly tinfoil_vector=b2d855cd6b434070e241483bbc5b3aa00b2a84345fc190fb7115e6f509be9baffebe43ae6f66b0da693c1722f312bf97
+readonly tinfoil_vector=fc6a1c627b66f661b3748edddf4e5bce47358dedbaaa3f0d244f50e555ce24996fb9f36bf96c1836547510e965d0c6e4
 readonly fabai_cc_sha256=a395a4995dafb944f6a7ac2f4d44d889ccd522d25505481e86d169e7328cfde2
-readonly fabai_vector=debdfcfc99dbcbb8a224088f86020945fb442eee23dea78e62fa5f9bfc71095236d14fc2d259e25c1aa0e7427d2f8e96
+readonly fabai_vector=e7d8f6fc2f2a00541db05aff5142152d319bb63d71caebc1e378e908fc79bb2e6005804b63150b1e9aa4fa9029e85cbc
 readonly cpus=8
 
 fail() {
@@ -74,13 +74,13 @@ trap 'rm -rf "$work"' EXIT
 fetch "$deployment_url" "$work/deployment.json" "$deployment_sha256"
 verify "$work/deployment.json" tinfoilsh/confidential-model-router \
   tinfoilsh/confidential-model-router/.github/workflows/tinfoil-release-publish.yml \
-  refs/tags/v0.0.177 https://tinfoil.sh/predicate/snp-tdx-multiplatform/v1
+  refs/tags/v0.0.178 https://tinfoil.sh/predicate/snp-tdx-multiplatform/v1
 jq -r .config "$work/deployment.json" | base64 -d > "$work/config.yml"
 tinfoil-config "$work/config.yml"
 
 fetch "$manifest_url" "$work/manifest.json" "$manifest_sha256"
 verify "$work/manifest.json" tinfoilsh/cvmimage tinfoilsh/cvmimage/.github/workflows/release.yml \
-  refs/tags/v0.14.15 https://slsa.dev/provenance/v1
+  refs/tags/v0.14.19 https://slsa.dev/provenance/v1
 root="$(jq -r .root "$work/manifest.json")"
 fetch "${images}.vmlinuz" "$work/kernel" "$(jq -r .kernel "$work/manifest.json")"
 fetch "${images}.initrd" "$work/initrd" "$(jq -r .initrd "$work/manifest.json")"

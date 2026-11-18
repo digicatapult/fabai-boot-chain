@@ -49,15 +49,15 @@ let
     ];
   };
 
-  # Tinfoil's published deployment of confidential-model-router v0.0.177 on
-  # cvmimage v0.14.15, pinned by digest. The deployment embeds its config.
+  # Tinfoil's published deployment of confidential-model-router v0.0.178 on
+  # cvmimage v0.14.19, pinned by digest. The deployment embeds its config.
   tinfoilDeployment = fetchurl {
-    url = "https://github.com/tinfoilsh/confidential-model-router/releases/download/v0.0.177/tinfoil-deployment.json";
-    sha256 = "6c7e382625c6d6b0e74b408b9f5fa28b39f1157b6a4aafe0613d378aa1204452";
+    url = "https://github.com/tinfoilsh/confidential-model-router/releases/download/v0.0.178/tinfoil-deployment.json";
+    sha256 = "d9beadbdb487812581c2432a6eaf2b6483d88565e70bd7eb39a78ad93eebbdba";
   };
   tinfoilManifest = fetchurl {
-    url = "https://github.com/tinfoilsh/cvmimage/releases/download/v0.14.15/tinfoil-inference-v0.14.15-manifest.json";
-    sha256 = "51166e30f9292cbddf28d493cac6f12d42a9b8aa75bb9a1b5cf759f02f8b7bf4";
+    url = "https://github.com/tinfoilsh/cvmimage/releases/download/v0.14.19/tinfoil-inference-v0.14.19-manifest.json";
+    sha256 = "9e6e8b1ffe6a95857621835084930bdeacff2bba015e064568b108de9d5bf81a";
   };
 in
 {

@@ -28,7 +28,7 @@ into this repository, modified or distributed with its releases:
 
 | Tool | Source | Version | Licence |
 |------|--------|---------|---------|
-| `tinfoil-config` CLI | [tinfoilsh/tinfoil-config](https://github.com/tinfoilsh/tinfoil-config), built from source by [`nix/tinfoil-config.nix`](nix/tinfoil-config.nix) | v0.1.18 | AGPL-3.0 |
+| `tinfoil-config` CLI | [tinfoilsh/tinfoil-config](https://github.com/tinfoilsh/tinfoil-config), built from source by [`nix/tinfoil-config.nix`](nix/tinfoil-config.nix) | v0.1.23 | AGPL-3.0 |
 | `sev-snp-measure` | [virtee/sev-snp-measure](https://github.com/virtee/sev-snp-measure), from nixpkgs | 0.0.12 | Apache-2.0 |
 | `yq` | [mikefarah/yq](https://github.com/mikefarah/yq), from nixpkgs | 4.53.2 | MIT |
 

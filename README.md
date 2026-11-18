@@ -182,7 +182,7 @@ repository's `cc` firmware. It verifies every input before it measures:
 
 | Input                  | Where from                                                                                | Checks                                                                                                                                                                                 |
 | ---------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Config                 | `config-file` input                                                                       | `tinfoil-config` v0.1.18 (the version `cvmimage` 0.14.15 runs); `cvm-version` pinned as `X.Y.Z@sha256:<manifest SHA-256>` and listed in `supported.json`; `cpus` is a positive decimal |
+| Config                 | `config-file` input                                                                       | `tinfoil-config` v0.1.23 (the version `cvmimage` 0.14.19 runs); `cvm-version` pinned as `X.Y.Z@sha256:<manifest SHA-256>` and listed in `supported.json`; `cpus` is a positive decimal |
 | Runtime image manifest | `cvmimage` release `v<X.Y.Z>`                                                             | SHA-256 equals the config's pin; attested by `tinfoilsh/cvmimage`'s `release.yml` at `refs/tags/v<X.Y.Z>`                                                                              |
 | Kernel, initrd         | `images.tinfoil.sh/cvm`                                                                   | SHA-256 equals the manifest's                                                                                                                                                          |
 | Firmware               | This repository's release in [`firmware.json`](.github/actions/measure-snp/firmware.json) | `OVMF.fd` only; SHA-256 equals the pin; attested by `release.yml` at the release tag                                                                                                   |
@@ -257,16 +257,20 @@ Updating the pins:
   `OVMF.fd` SHA-256 from its `SHA256SUMS` in `firmware.json`. Callers then
   move to that commit.
 - **New `cvmimage` 0.14.x release:** a PR adds the version and its manifest
-  SHA-256 to `supported.json`, after checking that its cmdline template and
-  its `tinfoil-config` version are unchanged. 0.15 and later boot IGVM, which
-  this action doesn't measure.
+  SHA-256 to `supported.json`, after checking that its cmdline template is
+  unchanged. It moves `nix/tinfoil-config.nix` to the `tinfoil-config`
+  version the release compiles in (`tinfoil/go.mod`), and the regression
+  test to a published Tinfoil deployment on that release. It removes any
+  earlier version that should no longer be measured: only 0.14.19 is listed,
+  because earlier kernels lack the fix for CVE-2026-98432. 0.15 and later
+  boot IGVM, which this action doesn't measure.
 
 The offline tests (`nix build .#checks.<system>.measure-snp`) run the action
 against fixtures, with fake `gh` and `curl`. Each failed check must stop the
 run before `sev-snp-measure` is called. They also check that the cmdline
 template reproduces a published Tinfoil deployment's. CI's advisory
 `Measurement regression` job reproduces Tinfoil's published measurement for
-`confidential-model-router` v0.0.177, and the FabAI vector for the `cc` image
+`confidential-model-router` v0.0.178 (`cvmimage` 0.14.19), and the FabAI vector for the `cc` image
 it built ([`nix/measure-snp/regression.sh`](nix/measure-snp/regression.sh)).
 
 ## Related repositories

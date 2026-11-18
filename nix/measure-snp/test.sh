@@ -4,8 +4,8 @@
 #   ACTION_DIR          .github/actions (measure-snp and install-nix)
 #   TOOLS               the measure-snp-tools package
 #   OVMF_FIXTURE        a small AmdSevX64 OVMF image that sev-snp-measure parses
-#   TINFOIL_DEPLOYMENT  confidential-model-router v0.0.177 tinfoil-deployment.json
-#   TINFOIL_MANIFEST    cvmimage v0.14.15 manifest
+#   TINFOIL_DEPLOYMENT  confidential-model-router v0.0.178 tinfoil-deployment.json
+#   TINFOIL_MANIFEST    cvmimage v0.14.19 manifest
 #
 # Each action case runs a copy of measure-snp.sh with its own firmware.json and
 # supported.json, fixture inputs, and fake gh and curl (fake-gh.sh,
@@ -17,7 +17,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly here
 PATH="$TOOLS/bin:$PATH"
 
-readonly image_tag=v0.14.15
+readonly image_tag=v0.14.19
 readonly image_repo=tinfoilsh/cvmimage
 readonly image_signer=tinfoilsh/cvmimage/.github/workflows/release.yml
 readonly manifest_url="https://github.com/${image_repo}/releases/download/${image_tag}/tinfoil-inference-${image_tag}-manifest.json"
@@ -88,11 +88,11 @@ setup() {
     --arg initrd "$(sha256 "$fixtures/initrd")" --arg root "$(printf 'r%.0s' {1..32} | sha256sum | cut -d ' ' -f 1)" \
     '{version: $version, root: $root, initrd: $initrd, kernel: $kernel, raw: $root}' > "$fixtures/manifest.json"
   manifest_sha256="$(sha256 "$fixtures/manifest.json")"
-  write_config "0.14.15@sha256:${manifest_sha256}" 4
+  write_config "0.14.19@sha256:${manifest_sha256}" 4
 
   jq -n --arg tag "$fw_tag" --arg sha256 "$(sha256 "$fixtures/OVMF.fd")" --arg signer "$fw_signer" \
     '{tag: $tag, sha256: $sha256, "signer-workflow": $signer}' > "$case_dir/actions/measure-snp/firmware.json"
-  jq -n --arg sha256 "$manifest_sha256" '{"0.14.15": {"manifest-sha256": $sha256}}' \
+  jq -n --arg sha256 "$manifest_sha256" '{"0.14.19": {"manifest-sha256": $sha256}}' \
     > "$case_dir/actions/measure-snp/supported.json"
 
   jq -n \
@@ -218,12 +218,12 @@ check_success() {
     --arg tag "$fw_tag" --arg firmware "$(sha256 "$fixtures/OVMF.fd")" --arg manifest "$manifest_sha256" \
     --arg config "$(sha256 "$fixtures/config.yml")" --arg configBase64 "$(base64 -w 0 "$fixtures/config.yml")" \
     '.firmware == {repository: "digicatapult/fabai-boot-chain", tag: $tag, asset: "OVMF.fd", sha256: $firmware}
-     and .runtimeImage.version == "0.14.15" and .runtimeImage.manifestSha256 == $manifest
+     and .runtimeImage.version == "0.14.19" and .runtimeImage.manifestSha256 == $manifest
      and .config == {sha256: $config, base64: $configBase64}
      and (.cmdline | endswith("tinfoil-config-hash=\($config)"))
      and .vmShape == {cpus: 4, vcpuType: "EPYC-v4", vcpuSignature: "0x800f12", memory: 8192, gpus: null}
      and .launch.guestFeatures == "0x1"
-     and .tools["sev-snp-measure"] == "0.0.12" and .tools["tinfoil-config"] == "0.1.18"' \
+     and .tools["sev-snp-measure"] == "0.0.12" and .tools["tinfoil-config"] == "0.1.23"' \
     "$document" > /dev/null; then
     report "$name" "unexpected document: $(cat "$document")"
   elif ! jq -e --slurpfile doc "$document" \
@@ -267,11 +267,11 @@ expect_failure 'HEAD signer pinned' 'signer-workflow must be' no-downloads
 ## Config
 
 setup
-write_config "0.14.15@sha256:${manifest_sha256}" 4 'unknown-key: 1'
+write_config "0.14.19@sha256:${manifest_sha256}" 4 'unknown-key: 1'
 expect_failure 'invalid config' 'rejected by tinfoil-config' no-downloads
 
 setup
-write_config 0.14.15 4
+write_config 0.14.19 4
 expect_failure 'unpinned cvm-version' 'cvm-version must be' no-downloads
 
 setup
@@ -279,23 +279,23 @@ write_config "0.15.4@sha256:${manifest_sha256}" 4
 expect_failure 'cvm-version 0.15 (IGVM)' 'cvm-version must be' no-downloads
 
 setup
-write_config "0.14.16@sha256:${manifest_sha256}" 4
-expect_failure 'cvm-version not in supported.json' 'is not supported' no-downloads
+write_config "0.14.15@sha256:${manifest_sha256}" 4
+expect_failure 'cvm-version 0.14.15 (CVE-2026-98432 kernel) not in supported.json' 'is not supported' no-downloads
 
 setup
-write_config "0.14.15@sha256:$(printf '0%.0s' {1..64})" 4
+write_config "0.14.19@sha256:$(printf '0%.0s' {1..64})" 4
 expect_failure 'cvm-version pins another manifest' 'but supported.json has' no-downloads
 
 setup
-write_config "0.14.15@sha256:${manifest_sha256}" 0
+write_config "0.14.19@sha256:${manifest_sha256}" 0
 expect_failure 'cpus 0' 'cpus must be a positive decimal integer' no-downloads
 
 setup
-write_config "0.14.15@sha256:${manifest_sha256}" 0x4
+write_config "0.14.19@sha256:${manifest_sha256}" 0x4
 expect_failure 'cpus in hex' 'cpus must be a positive decimal integer' no-downloads
 
 setup
-write_config "0.14.15@sha256:${manifest_sha256}" '"4"'
+write_config "0.14.19@sha256:${manifest_sha256}" '"4"'
 expect_failure 'cpus as a string' 'tinfoil-config' no-downloads
 
 ## Runtime image
@@ -409,7 +409,7 @@ else
   fi
 fi
 
-## Tinfoil's published deployment (confidential-model-router v0.0.177)
+## Tinfoil's published deployment (confidential-model-router v0.0.178)
 
 config="$work/tinfoil-config.yml"
 jq -r .config "$TINFOIL_DEPLOYMENT" | base64 -d > "$config"
@@ -427,11 +427,13 @@ else
   report 'tinfoil-config accepts the published config and rejects a broken one' 'wrong verdict'
 fi
 
-supported="$(jq -r '."0.14.15"."manifest-sha256"' "$ACTION_DIR/measure-snp/supported.json")"
-if [[ "$supported" == "$(sha256 "$TINFOIL_MANIFEST")" ]]; then
-  report 'supported.json pins the published 0.14.15 manifest'
+# 0.14.19 only: earlier 0.14.x kernels lack the CVE-2026-98432 fix.
+supported="$(jq -c '.' "$ACTION_DIR/measure-snp/supported.json")"
+expected="$(jq -nc --arg sha256 "$(sha256 "$TINFOIL_MANIFEST")" '{"0.14.19": {"manifest-sha256": $sha256}}')"
+if [[ "$supported" == "$expected" ]]; then
+  report 'supported.json pins only the published 0.14.19 manifest'
 else
-  report 'supported.json pins the published 0.14.15 manifest' "supported.json has $supported"
+  report 'supported.json pins only the published 0.14.19 manifest' "supported.json has $supported"
 fi
 
 printf '%d checks, %d failed\n' "$checks" "$failures"
