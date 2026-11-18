@@ -1,0 +1,80 @@
+name: Fetch flake inputs
+description: >-
+  Fetch the flake inputs at most once per workflow run, and output where the
+  other jobs restore them from (restore-inputs). Fetching edk2 with its
+  submodules takes 5-6 minutes. flake.lock's own inputs go through the Actions
+  cache, keyed by the SHA-256 of flake.lock: on a hit, nothing is fetched or
+  downloaded here. A run can only restore entries saved on its own branch or
+  on main, so cache.yml keeps main's entry warm, and a branch that changes
+  flake.lock fetches once, then hits its own entry. With edk2-rev (the HEAD
+  track), edk2 is re-locked to a commit on master; that always needs the
+  fetch, and the result is rarely used again, so it goes to a one-day
+  artifact of this run instead of the cache. Every source is content-addressed
+  by the narHash that flake.lock pins, so a tampered copy can't be imported.
+
+inputs:
+  edk2-rev:
+    description: >-
+      Full commit SHA on tianocore/edk2 master to build instead of the revision
+      in flake.lock. Rewrites flake.lock, which travels with the inputs so that
+      restore-inputs uses the same lock. Empty keeps the lock.
+    default: ""
+
+outputs:
+  key:
+    description: >-
+      flake-inputs-v1-<SHA-256 of flake.lock>: the cache key or artifact name
+      holding the inputs and flake.lock.
+    value: ${{ steps.prepare.outputs.key }}
+  transport:
+    description: Where the inputs are, for restore-inputs; cache or artifact.
+    value: ${{ steps.prepare.outputs.transport }}
+  fetched:
+    description: true if this step fetched the inputs, false on a cache hit.
+    value: ${{ steps.lookup.outputs.cache-hit != 'true' }}
+
+runs:
+  using: composite
+  steps:
+    - name: Lock
+      id: prepare
+      shell: bash
+      env:
+        EDK2_REV: ${{ inputs.edk2-rev }}
+      run: bash "$GITHUB_ACTION_PATH/fetch-inputs.sh" prepare
+
+    - name: Look up cached inputs
+      id: lookup
+      if: steps.prepare.outputs.transport == 'cache'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/flake-inputs
+        key: ${{ steps.prepare.outputs.key }}
+        lookup-only: true
+
+    - name: Fetch and export inputs
+      if: steps.lookup.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        CACHE_DIR: ${{ runner.temp }}/flake-inputs
+      run: bash "$GITHUB_ACTION_PATH/fetch-inputs.sh" export
+
+    - name: Cache inputs
+      if: steps.prepare.outputs.transport == 'cache' && steps.lookup.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/flake-inputs
+        key: ${{ steps.prepare.outputs.key }}
+
+    # Already zstd-compressed. overwrite lets a re-run of this job replace the
+    # artifact of the failed attempt.
+    - name: Upload inputs
+      if: steps.prepare.outputs.transport == 'artifact'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ steps.prepare.outputs.key }}
+        path: ${{ runner.temp }}/flake-inputs
+        retention-days: 1
+        compression-level: 0
+        overwrite: true
+        if-no-files-found: error

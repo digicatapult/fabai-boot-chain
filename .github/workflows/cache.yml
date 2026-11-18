@@ -1,0 +1,53 @@
+name: Cache
+
+# Keeps flake.lock's inputs in main's Actions cache. A run can only restore
+# entries saved on its own branch or on main, and test.yml doesn't run on
+# main, so without this every new branch and every stable release would fetch
+# edk2 (5-6 minutes). Entries unused for 7 days are evicted, so on a hit this
+# also restores the entry, twice a week, to keep it in use.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - flake.lock
+      - .github/actions/fetch-inputs/**
+  schedule:
+    - cron: "17 3 * * 1,4"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  flake-inputs:
+    name: Flake inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: ./.github/actions/install-nix
+
+      - name: Fetch flake inputs
+        id: fetch
+        uses: ./.github/actions/fetch-inputs
+
+      # fetch-inputs only looks the entry up on a hit, which may not count as
+      # a use; a full restore does.
+      - name: Keep the entry in use
+        if: steps.fetch.outputs.fetched == 'false'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/flake-inputs
+          key: ${{ steps.fetch.outputs.key }}
+          fail-on-cache-miss: true

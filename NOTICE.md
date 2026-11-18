@@ -10,7 +10,9 @@ This repository's own files are licensed under the Apache License, Version 2.0
 - **Firmware images published in this repository's releases.** They are built
   from [tianocore/edk2](https://github.com/tianocore/edk2) and are distributed
   under edk2's licences (BSD-2-Clause-Patent, plus the licences of the bundled
-  libraries it compiles in), not under Apache-2.0.
+  libraries it compiles in, such as OpenSSL's Apache-2.0), not under
+  Apache-2.0. Each release lists the third-party code in its images in
+  `THIRD-PARTY.txt` and ships the licence texts as `LICENSE-*.txt`.
 
 ## Third-party material
 
