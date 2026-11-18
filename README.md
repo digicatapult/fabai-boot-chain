@@ -3,7 +3,8 @@
 This repository provides release engineering for the FabAI confidential VM boot
 chain, including the AMD SEV-SNP guest firmware (OVMF) built from unmodified
 [tianocore/edk2](https://github.com/tianocore/edk2) source and published with
-Sigstore build provenance.
+Sigstore build provenance, and the action that computes a deployment's launch
+measurement on that firmware ([Measuring a deployment](#measuring-a-deployment)).
 
 ## Forking edk2
 
@@ -21,7 +22,7 @@ Both changes affect `OvmfPkg/AmdSev/AmdSevX64.dsc`:
 ## Firmware variants
 
 | Variant | File            | Build type                 | For                               |
-|---------|-----------------|----------------------------|-----------------------------------|
+| ------- | --------------- | -------------------------- | --------------------------------- |
 | cc      | `OVMF.fd`       | `RELEASE`, no debug output | Confidential (SEV-SNP) guests     |
 | noncc   | `OVMF-noncc.fd` | `DEBUG`                    | Non-confidential test guests only |
 
@@ -38,14 +39,14 @@ guest is meant to be protected from.
 ## Release tracks
 
 | Track  | Built from                | Tag                           | When                                                                                                        |
-|--------|---------------------------|-------------------------------|-------------------------------------------------------------------------------------------------------------|
+| ------ | ------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | Stable | Latest `edk2-stable*` tag | `ovmf-edk2-stableYYYYMM-rN`   | Each upstream stable release (roughly quarterly). `rN` increments when only this repository's build changes |
 | HEAD   | edk2 `master`             | `ovmf-head-YYYYMMDD-<commit>` | By hand for now (daily later), if upstream or this repository changed. A prerelease; the last 30 are kept   |
 
 Every release contains:
 
 | Asset                                             | Contents                                                                                                                                             |
-|---------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OVMF.fd`, `OVMF-noncc.fd`                        | The two variants                                                                                                                                     |
 | `SHA256SUMS`                                      | Digests of every other asset                                                                                                                         |
 | `PROVENANCE.txt`                                  | The edk2 ref and commit, this repository's commit, the nixpkgs commit, the `flake.lock` digest, the patches, the build flags and the Nix derivations |
@@ -132,8 +133,9 @@ it comes in with the SEV hash verifier, which `OVMF-noncc.fd` replaces.
 
 `nix flake check` runs actionlint, ShellCheck, a check that every action is
 pinned to a full commit SHA and every workflow starts from `permissions: {}`,
-and the Renovate config validator. It doesn't build firmware, so it also runs
-on `aarch64-linux`. The pinning check reads `uses:` line by line, so it accepts
+the Renovate config validator, and the offline tests of the
+[measurement action](#measuring-a-deployment). It doesn't build firmware, so
+it also runs on `aarch64-linux`. The pinning check reads `uses:` line by line, so it accepts
 only block style (`uses: <ref>`) and rejects any other form, such as
 `{ uses: … }`, rather than skip it. CI builds the same checks without
 evaluating the firmware packages, so the lint job never needs the edk2 source.
@@ -170,11 +172,107 @@ rules for this repository:
   it changes the firmware bytes and the launch measurement. It moves only
   together with an edk2 stable release.
 
+## Measuring a deployment
+
+A client accepts a confidential guest only if its SEV-SNP `MEASUREMENT` is on
+FabAI's allowlist. The [`measure-snp`](.github/actions/measure-snp/action.yml)
+composite action computes that value for a deployment of
+[tinfoilsh/cvmimage](https://github.com/tinfoilsh/cvmimage) 0.14.x on this
+repository's `cc` firmware. It verifies every input before it measures:
+
+| Input                  | Where from                                                                                | Checks                                                                                                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Config                 | `config-file` input                                                                       | `tinfoil-config` v0.1.18 (the version `cvmimage` 0.14.15 runs); `cvm-version` pinned as `X.Y.Z@sha256:<manifest SHA-256>` and listed in `supported.json`; `cpus` is a positive decimal |
+| Runtime image manifest | `cvmimage` release `v<X.Y.Z>`                                                             | SHA-256 equals the config's pin; attested by `tinfoilsh/cvmimage`'s `release.yml` at `refs/tags/v<X.Y.Z>`                                                                              |
+| Kernel, initrd         | `images.tinfoil.sh/cvm`                                                                   | SHA-256 equals the manifest's                                                                                                                                                          |
+| Firmware               | This repository's release in [`firmware.json`](.github/actions/measure-snp/firmware.json) | `OVMF.fd` only; SHA-256 equals the pin; attested by `release.yml` at the release tag                                                                                                   |
+
+Every attestation check also requires a GitHub-hosted runner and the SLSA
+provenance predicate. If any check fails, the run stops before measuring and
+writes nothing. The firmware is not an input: it is always the stable `cc`
+release pinned in `firmware.json`, so a caller can't measure `OVMF-noncc.fd` or
+a HEAD build. `sev-snp-measure`, `tinfoil-config`, `gh` and `yq` come from this
+repository's flake at the action's commit.
+
+The outputs are `measurement`, `document` (the path of `snp-measurement.json`),
+`document-sha256` and `allowlist-entry` (the measured fields of an allowlist
+entry). The action doesn't sign. The calling job attests the document, so each
+deployment repository's release workflow is the signer, with the predicate
+type
+[`snp-launch-measurement-v1`](docs/predicates/snp-launch-measurement-v1.md),
+which also defines the document's fields.
+
+A deployment repository's release workflow, measuring one VM shape per config
+file:
+
+```yaml
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # upload the release assets
+      id-token: write # attest
+      attestations: write # attest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@<full SHA> # vX
+        with:
+          persist-credentials: false
+
+      - name: Measure
+        id: measure
+        uses: digicatapult/fabai-boot-chain/.github/actions/measure-snp@<full SHA>
+        with:
+          config-file: tinfoil-config.yml
+
+      - name: Attest measurement
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.measure.outputs.document }}
+          predicate-type: https://github.com/digicatapult/fabai-boot-chain/blob/main/docs/predicates/snp-launch-measurement-v1.md
+          predicate-path: ${{ steps.measure.outputs.document }}
+
+      - name: Publish
+        run: gh release upload "$GITHUB_REF_NAME" "$DOCUMENT" "$ALLOWLIST_ENTRY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOCUMENT: ${{ steps.measure.outputs.document }}
+          ALLOWLIST_ENTRY: ${{ steps.measure.outputs.allowlist-entry }}
+```
+
+The measurement only matches a guest that the host launches the way it
+assumes:
+
+- `-cpu EPYC-v4`, or another family 23, model 1, stepping 2 CPU model. Never
+  `-cpu host` or `EPYC-Genoa`: the vCPU signature is measured into every VMSA.
+- `-smp` equal to the config's `cpus`. Each vCPU count is its own allowlist
+  entry.
+- `-object sev-snp-guest,…,kernel-hashes=on` without IGVM, so the guest
+  features are `0x1`, and `-bios OVMF.fd -kernel … -initrd … -append …` with
+  exactly the document's `cmdline`.
+
+Updating the pins:
+
+- **New firmware release:** after a stable release, a PR sets its tag and the
+  `OVMF.fd` SHA-256 from its `SHA256SUMS` in `firmware.json`. Callers then
+  move to that commit.
+- **New `cvmimage` 0.14.x release:** a PR adds the version and its manifest
+  SHA-256 to `supported.json`, after checking that its cmdline template and
+  its `tinfoil-config` version are unchanged. 0.15 and later boot IGVM, which
+  this action doesn't measure.
+
+The offline tests (`nix build .#checks.<system>.measure-snp`) run the action
+against fixtures, with fake `gh` and `curl`. Each failed check must stop the
+run before `sev-snp-measure` is called. They also check that the cmdline
+template reproduces a published Tinfoil deployment's. CI's advisory
+`Measurement regression` job reproduces Tinfoil's published measurement for
+`confidential-model-router` v0.0.177, and the FabAI vector for the `cc` image
+it built ([`nix/measure-snp/regression.sh`](nix/measure-snp/regression.sh)).
+
 ## Related repositories
 
-- [digicatapult/fabai-measure-image-action](https://github.com/digicatapult/fabai-measure-image-action):
-  a fork of [tinfoilsh/measure-image-action](https://github.com/tinfoilsh/measure-image-action)
-  that will compute launch measurements against these firmware releases.
+- [tinfoilsh/cvmimage](https://github.com/tinfoilsh/cvmimage): the runtime
+  image that [`measure-snp`](#measuring-a-deployment) measures.
 
 ## Licence
 

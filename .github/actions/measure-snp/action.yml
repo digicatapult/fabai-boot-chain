@@ -1,0 +1,71 @@
+name: Measure SEV-SNP launch
+description: >-
+  Compute the SEV-SNP launch measurement of a tinfoilsh/cvmimage 0.14.x
+  deployment on this repository's cc firmware (OVMF.fd), for a given config
+  and vCPU count. Every input is verified first: the config with
+  tinfoil-config; the runtime image manifest by its pinned digest and its
+  attestation; the kernel and initrd against the manifest; and the firmware,
+  which firmware.json pins, by digest and by an attestation from release.yml
+  at its tag. Writes a measurement document and an allowlist entry fragment.
+  Nothing is signed here: the calling job attests the document, so the
+  deployment repository's release workflow is the signer. See the README,
+  "Measuring a deployment".
+
+# Deliberately no input for the firmware: firmware.json decides it.
+inputs:
+  config-file:
+    description: >-
+      Path to the deployment's tinfoil-config YAML. Its cvm-version must be
+      pinned as X.Y.Z@sha256:<manifest SHA-256> and listed in supported.json;
+      its cpus is the vCPU count measured. The raw bytes are hashed, so
+      measure exactly the file that is deployed.
+    required: true
+  github-token:
+    description: >-
+      Token for gh attestation verify and for fetching this repository's flake
+      inputs. Needs no write permissions.
+    default: ${{ github.token }}
+
+outputs:
+  measurement:
+    description: The launch measurement, 96 lowercase hex characters.
+    value: ${{ steps.measure.outputs.measurement }}
+  document:
+    description: >-
+      Path of the measurement document (snp-measurement.json); the subject and
+      predicate to attest, with the predicate type in the README.
+    value: ${{ steps.measure.outputs.document }}
+  document-sha256:
+    description: SHA-256 of the measurement document.
+    value: ${{ steps.measure.outputs.document-sha256 }}
+  allowlist-entry:
+    description: >-
+      Path of the allowlist entry fragment (allowlist-entry.json): the measured
+      fields of a measurement-allowlist entry.
+    value: ${{ steps.measure.outputs.allowlist-entry }}
+
+runs:
+  using: composite
+  steps:
+    # `uses: ./.github/actions/install-nix` would resolve in the caller's
+    # repository, so this calls the script beside this action instead.
+    - name: Install Nix
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: bash "$GITHUB_ACTION_PATH/measure-snp.sh" install-nix
+
+    # From the flake.lock of this action's own commit.
+    - name: Build tools
+      id: tools
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/measure-snp.sh" tools
+
+    - name: Verify inputs and measure
+      id: measure
+      shell: bash
+      env:
+        CONFIG_FILE: ${{ inputs.config-file }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        MEASURE_SNP_TOOLS: ${{ steps.tools.outputs.path }}
+      run: bash "$GITHUB_ACTION_PATH/measure-snp.sh" action
