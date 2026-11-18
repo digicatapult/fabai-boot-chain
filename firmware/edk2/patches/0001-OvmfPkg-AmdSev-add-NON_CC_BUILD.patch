@@ -1,0 +1,58 @@
+From c0754c1c43762ed84acddfc2815563d0b5714662 Mon Sep 17 00:00:00 2001
+From: Jules Drean <jules@tinfoil.sh>
+Date: Fri, 9 Oct 2026 01:32:52 +0000
+Subject: [PATCH] OvmfPkg/AmdSev: add NON_CC_BUILD option for non-confidential
+ testing
+
+With -DNON_CC_BUILD=TRUE, AmdSevX64 links BlobVerifierLibNull instead of
+BlobVerifierLibSevHashes, both as the platform BlobVerifierLib and as the
+NULL library of QemuKernelLoaderFsDxe. The firmware then boots the kernel,
+initrd and command line supplied by QEMU without checking them against the
+SEV hashes table, so it can boot a guest without SEV-SNP.
+
+The default is FALSE, which keeps SEV hash verification. The resulting
+image must never be used for a confidential guest.
+
+Rebased onto edk2-stable202608 from tinfoilsh/edk2 commit 97c3701c0f
+("build: add firmware for nonconfidential testing"), keeping only the
+AmdSevX64.dsc changes.
+---
+ OvmfPkg/AmdSev/AmdSevX64.dsc | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/OvmfPkg/AmdSev/AmdSevX64.dsc b/OvmfPkg/AmdSev/AmdSevX64.dsc
+index 2fbcd01ce4..bfaf6cbf4d 100644
+--- a/OvmfPkg/AmdSev/AmdSevX64.dsc
++++ b/OvmfPkg/AmdSev/AmdSevX64.dsc
+@@ -33,6 +33,7 @@
+   #
+   DEFINE SOURCE_DEBUG_ENABLE     = FALSE
+   DEFINE DEBUG_TO_MEM            = FALSE
++  DEFINE NON_CC_BUILD            = FALSE
+ 
+ !include OvmfPkg/Include/Dsc/OvmfTpmDefines.dsc.inc
+ 
+@@ -168,7 +169,11 @@
+   LockBoxLib|OvmfPkg/Library/LockBoxLib/LockBoxBaseLib.inf
+   CustomizedDisplayLib|MdeModulePkg/Library/CustomizedDisplayLib/CustomizedDisplayLib.inf
+   FrameBufferBltLib|MdeModulePkg/Library/FrameBufferBltLib/FrameBufferBltLib.inf
++!if $(NON_CC_BUILD) == TRUE
++  BlobVerifierLib|OvmfPkg/Library/BlobVerifierLibNull/BlobVerifierLibNull.inf
++!else
+   BlobVerifierLib|OvmfPkg/AmdSev/BlobVerifierLibSevHashes/BlobVerifierLibSevHashes.inf
++!endif
+   MemEncryptTdxLib|OvmfPkg/Library/BaseMemEncryptTdxLib/BaseMemEncryptTdxLib.inf
+   PeiHardwareInfoLib|OvmfPkg/Library/HardwareInfoLib/PeiHardwareInfoLib.inf
+   DxeHardwareInfoLib|OvmfPkg/Library/HardwareInfoLib/DxeHardwareInfoLib.inf
+@@ -675,7 +680,11 @@
+   MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
+   OvmfPkg/QemuKernelLoaderFsDxe/QemuKernelLoaderFsDxe.inf {
+     <LibraryClasses>
++!if $(NON_CC_BUILD) == TRUE
++      NULL|OvmfPkg/Library/BlobVerifierLibNull/BlobVerifierLibNull.inf
++!else
+       NULL|OvmfPkg/AmdSev/BlobVerifierLibSevHashes/BlobVerifierLibSevHashes.inf
++!endif
+   }
+   OvmfPkg/VirtioPciDeviceDxe/VirtioPciDeviceDxe.inf
+   OvmfPkg/Virtio10Dxe/Virtio10.inf
