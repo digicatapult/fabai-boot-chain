@@ -1,0 +1,45 @@
+name: Upstream watch
+
+# Raises an issue for each tianocore/edk2 event that may need a firmware
+# release: a newer stable tag, a security advisory, or commits on master
+# touching the SEV paths that the pinned tag lacks (scripts/upstream-watch,
+# README "Upstream watch"). Opens issues only; never branches, tags or PRs.
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Print what would be raised, and write nothing.
+        type: boolean
+        default: false
+
+permissions: {}
+
+# Two runs at once could both open the same issue.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Watch
+    # The pin and the issue state are main's.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Watch tianocore/edk2
+        run: bash scripts/upstream-watch/watch.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry-run == true }}
