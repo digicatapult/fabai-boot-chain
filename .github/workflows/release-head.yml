@@ -4,11 +4,10 @@ name: Release HEAD
 # neither has changed since the last HEAD release. Never marked latest; the
 # newest 30 are kept. Attested by this workflow's own job, so its images never
 # pass a --signer-workflow check for release.yml.
-#
-# By hand for now. A daily schedule follows once a manual run has released
-# end to end.
 
 on:
+  schedule:
+    - cron: "00 8 * * *"
   workflow_dispatch:
 
 permissions: {}
