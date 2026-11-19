@@ -48,9 +48,18 @@
         "x86_64-linux"
         "aarch64-linux"
       ];
+
+      # The measurement action's tools and tests (nix/measure-snp.nix), on
+      # the same systems as linting.
+      measureSnp = nixpkgs.lib.genAttrs lintSystems (
+        lintSystem: nixpkgs.legacyPackages.${lintSystem}.callPackage ./nix/measure-snp.nix { }
+      );
     in
     {
-      packages.${system} = firmware;
+      packages = nixpkgs.lib.genAttrs lintSystems (
+        packageSystem:
+        measureSnp.${packageSystem}.packages // nixpkgs.lib.optionalAttrs (packageSystem == system) firmware
+      );
 
       # Builds that exist only to verify the published ones; never released.
       legacyPackages.${system}.verify = {
@@ -81,6 +90,7 @@
         lintSystem:
         nixpkgs.legacyPackages.${lintSystem}.callPackages ./nix/lint.nix { }
         // nixpkgs.legacyPackages.${lintSystem}.callPackages ./nix/upstream-watch.nix { }
+        // measureSnp.${lintSystem}.checks
       );
     };
 }

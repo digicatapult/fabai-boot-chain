@@ -1,0 +1,5 @@
+{
+  "tag": null,
+  "sha256": null,
+  "signer-workflow": "digicatapult/fabai-boot-chain/.github/workflows/release.yml"
+}

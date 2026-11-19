@@ -20,7 +20,8 @@ jobs:
       contents: read
 
   # actionlint (with ShellCheck), ShellCheck, the workflow pinning policy and
-  # the Renovate config, all from the pinned nixpkgs (nix/lint.nix).
+  # the Renovate config, all from the pinned nixpkgs (nix/lint.nix), and the
+  # measurement action's offline tests (nix/measure-snp.nix).
   lint:
     name: Lint
     runs-on: ubuntu-24.04
@@ -76,3 +77,41 @@ jobs:
           for patch in "$PWD"/firmware/edk2/patches/*.patch; do
             git -C "$edk2" apply --cached --verbose "$patch"
           done
+
+  # The measurement core must reproduce Tinfoil's published measurement, and
+  # the FabAI vector for the cc image built above
+  # (nix/measure-snp/regression.sh). Advisory only: it depends on Tinfoil's
+  # releases and images.tinfoil.sh, and the FabAI vector must be updated
+  # whenever the cc image changes, so it is not a required check.
+  measurement-regression:
+    name: Measurement regression
+    needs: firmware
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: ./.github/actions/install-nix
+
+      - name: Download cc image
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ovmf-cc-ubuntu-24.04
+          path: cc
+
+      - name: Build tools
+        id: tools
+        run: printf 'path=%s\n' "$(nix build --no-link --print-out-paths .#measure-snp-tools)" >> "$GITHUB_OUTPUT"
+
+      - name: Reproduce measurements
+        run: bash nix/measure-snp/regression.sh
+        env:
+          MEASURE_SNP_TOOLS: ${{ steps.tools.outputs.path }}
+          GH_TOKEN: ${{ github.token }}
+          CC_IMAGE: cc/OVMF.fd

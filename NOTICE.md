@@ -20,6 +20,21 @@ This repository's own files are licensed under the Apache License, Version 2.0
 |------|--------|--------|---------|
 | [`firmware/edk2/patches/0001-OvmfPkg-AmdSev-add-NON_CC_BUILD.patch`](firmware/edk2/patches/0001-OvmfPkg-AmdSev-add-NON_CC_BUILD.patch) | [tinfoilsh/edk2](https://github.com/tinfoilsh/edk2), rebased onto `edk2-stable202608` | [`97c3701c0f`](https://github.com/tinfoilsh/edk2/commit/97c3701c0f497c9677bf69ea19da66415412be60) | BSD-2-Clause-Patent ([`firmware/edk2/LICENSE`](firmware/edk2/LICENSE)) |
 
+## Third-party tools
+
+The SEV-SNP measurement action ([`.github/actions/measure-snp`](.github/actions/measure-snp))
+runs these tools, built from [`flake.lock`](flake.lock)'s pins. None is copied
+into this repository, modified or distributed with its releases:
+
+| Tool | Source | Version | Licence |
+|------|--------|---------|---------|
+| `tinfoil-config` CLI | [tinfoilsh/tinfoil-config](https://github.com/tinfoilsh/tinfoil-config), built from source by [`nix/tinfoil-config.nix`](nix/tinfoil-config.nix) | v0.1.23 | AGPL-3.0 |
+| `sev-snp-measure` | [virtee/sev-snp-measure](https://github.com/virtee/sev-snp-measure), from nixpkgs | 0.0.12 | Apache-2.0 |
+| `yq` | [mikefarah/yq](https://github.com/mikefarah/yq), from nixpkgs | 4.53.2 | MIT |
+
+`tinfoil-config` only validates configs in CI. It is run unmodified and never
+distributed, so the action's own files stay Apache-2.0.
+
 ## Acknowledgements
 
 Apart from the material listed above, no code is copied from these projects, but
