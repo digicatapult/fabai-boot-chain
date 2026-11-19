@@ -9,6 +9,10 @@ readonly PIN_208=2970e5699ba6267f3384ffab20f96647578aebc8
 # shellcheck disable=SC2034 # Used by test.sh.
 readonly PIN_211=46548b1adac8000000000000000000000000beef
 readonly SEV_PATH_LIST=(OvmfPkg/AmdSev OvmfPkg/Library/BaseMemEncryptSevLib OvmfPkg/Library/CcExitLib)
+# Who the fake gh writes as (GITHUB_TOKEN), and anyone else with an account.
+# shellcheck disable=SC2034 # Used by the tests.
+readonly WATCHER_USER='{"login": "github-actions[bot]", "type": "Bot"}'
+readonly OUTSIDER_USER='{"login": "mallory", "type": "User"}'
 CHECKS=0
 FAILURES=0
 
@@ -34,10 +38,12 @@ pin() {
   jq -n --arg ref "refs/tags/$1" --arg rev "$2" \
     '{nodes: {edk2: {original: {ref: $ref}, locked: {ref: $ref, rev: $rev}}}}' > "$CASE/flake.lock"
   api_set "repos/tianocore/edk2/commits/$2" "$(jq -n --arg date "$3" '{commit: {committer: {date: $date}}}')"
-  local since path
+  local since path ref
   since="$(date -u -d "$3 - 30 days" +%Y-%m-%dT%H:%M:%SZ)"
   for path in "${SEV_PATH_LIST[@]}"; do
-    api_set "repos/tianocore/edk2/commits?sha=master&path=${path}&since=${since}&per_page=100" '[]'
+    for ref in master "$2"; do
+      api_set "repos/tianocore/edk2/commits?sha=${ref}&path=${path}&since=${since}&per_page=100" '[]'
+    done
   done
   SINCE="$since"
   PIN="$2"
@@ -100,13 +106,16 @@ set_advisories() {
 }
 
 # add_sev SHA PATH DATE TITLE ahead|behind: a commit on master touching PATH,
-# which the pin lacks (ahead) or contains (behind).
+# which the pin lacks (ahead) or contains (behind: in the pin's history too).
 add_sev() {
-  api_add "repos/tianocore/edk2/commits?sha=master&path=$2&since=${SINCE}&per_page=100" \
-    "$(jq -n --arg sha "$1" --arg date "$3" --arg title "$4" \
-      '{sha: $sha, html_url: "https://github.com/tianocore/edk2/commit/\($sha)",
-        commit: {committer: {date: $date}, message: "\($title)\n\nSigned-off-by: Someone"}}')"
-  api_set "repos/tianocore/edk2/compare/${PIN}...$1?per_page=1" "$(jq -n --arg status "$5" '{status: $status}')"
+  local commit
+  commit="$(jq -n --arg sha "$1" --arg date "$3" --arg title "$4" \
+    '{sha: $sha, html_url: "https://github.com/tianocore/edk2/commit/\($sha)",
+      commit: {committer: {date: $date}, message: "\($title)\n\nSigned-off-by: Someone"}}')"
+  api_add "repos/tianocore/edk2/commits?sha=master&path=$2&since=${SINCE}&per_page=100" "$commit"
+  if [[ "$5" == behind ]]; then
+    api_add "repos/tianocore/edk2/commits?sha=${PIN}&path=$2&since=${SINCE}&per_page=100" "$commit"
+  fi
   api_set "repos/tianocore/edk2/commits/$1" \
     "$(jq -n --arg file "$2/File.c" '{files: [{filename: $file}, {filename: "MdePkg/Other.c"}]}')"
 }
@@ -145,6 +154,25 @@ comments() {
 
 comment_count() {
   jq -r --arg number "$1" '.[$number] // [] | length' "$STATE/comments.json"
+}
+
+# outsider_comment NUMBER BODY: someone other than the watcher comments.
+outsider_comment() {
+  jq --arg number "$1" --arg body "$2" --argjson user "$OUTSIDER_USER" \
+    '.[$number] += [{body: $body, user: $user}]' "$STATE/comments.json" > "$STATE/comments.new"
+  mv "$STATE/comments.new" "$STATE/comments.json"
+}
+
+# edit_issue NUMBER JQ_UPDATE: a person changes issue NUMBER, such as closing
+# or relabelling it.
+edit_issue() {
+  jq --argjson number "$1" "map(if .number == \$number then $2 else . end)" "$STATE/issues.json" > "$STATE/issues.new"
+  mv "$STATE/issues.new" "$STATE/issues.json"
+}
+
+# issue_json NUMBER: issue NUMBER as stored, with its label names as .names.
+issue_json() {
+  jq -c --argjson number "$1" '.[] | select(.number == $number) | . + {names: [.labels[].name]}' "$STATE/issues.json"
 }
 
 # writes: POST and PATCH calls in the last run.

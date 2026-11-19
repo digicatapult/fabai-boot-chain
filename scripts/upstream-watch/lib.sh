@@ -3,14 +3,21 @@
 #   REPO      this repository (owner/name), where issues are raised
 #   DRY_RUN   true to print every write instead of making it
 #   WORK      a scratch directory
-#   ISSUES    $WORK/issues.json: every issue labelled upstream-watch, with
-#             its marker parsed (load_issues)
+#   ISSUES    $WORK/issues.json: every issue the watcher opened, with its
+#             marker parsed (load_issues)
 # Every GitHub read fails the run if it fails, so a failed or partial read
 # never looks like "nothing new". Every write goes through `write`.
+# Issues here are public, so anyone can post a marker: only issues and
+# comments the watcher wrote itself count, never labels or others' text.
 
 # shellcheck disable=SC2034 # Used by the watches watch.sh sources.
 readonly UPSTREAM=tianocore/edk2
 readonly MARKER_PREFIX='<!-- upstream-watch '
+# Who GITHUB_TOKEN writes as.
+readonly WATCHER_LOGIN='github-actions[bot]'
+readonly WATCHER_TYPE=Bot
+# Removed when the watcher reopens an issue, which then needs triage again.
+readonly TRIAGED_LABEL=triaged
 # GitHub rejects issue and comment bodies longer than this.
 readonly MAX_BODY=65536
 
@@ -62,22 +69,25 @@ write() {
   printf '%s\n' "$summary"
 }
 
-# Every issue labelled upstream-watch, open or closed, through the issues
-# endpoint rather than search, whose index lags behind new issues. Each gets
-# the attributes of its body's last marker, so text quoted above the marker
-# can't override it.
+# Every issue the watcher opened, open or closed, through the issues endpoint
+# rather than search, whose index lags behind new issues. Found by author, not
+# label, so relabelling one while triaging it can't cause a duplicate. Each
+# gets its labels and the attributes of its body's last marker, so text
+# quoted above the marker can't override it.
 load_issues() {
-  api_all "repos/${REPO}/issues?state=all&labels=upstream-watch&per_page=100" |
-    jq --arg prefix "$MARKER_PREFIX" '[
-      .[] | select(.pull_request | not)
+  local creator
+  creator="$(jq -rn --arg login "$WATCHER_LOGIN" '$login | @uri')"
+  api_all "repos/${REPO}/issues?state=all&creator=${creator}&per_page=100" |
+    jq --arg prefix "$MARKER_PREFIX" --arg login "$WATCHER_LOGIN" --arg type "$WATCHER_TYPE" '[
+      .[] | select((.pull_request | not) and .user.login == $login and .user.type == $type)
       | (.body // "") as $body
       | ([$body | scan("\($prefix)([^>]*) -->")] | last) as $attrs
       | select($attrs)
-      | {number, title, state, body: $body}
+      | {number, title, state, body: $body, labels: [.labels[].name]}
         + ($attrs[0] | split(" ") | map(select(contains("=")) | capture("^(?<key>[^=]+)=(?<value>.*)$"))
            | from_entries)
-    ]' > "$ISSUES" || fail "can't parse the upstream-watch issues"
-  printf 'Found %s upstream-watch issues\n' "$(jq length "$ISSUES")"
+    ]' > "$ISSUES" || fail "can't parse the watcher's issues"
+  printf 'Found %s issues opened by the watcher\n' "$(jq length "$ISSUES")"
 }
 
 # issues_of KIND: the parsed issues of one kind, as a JSON array.
@@ -118,14 +128,16 @@ open_issue() {
   write POST "repos/${REPO}/issues" "open issue \"$2\"" "$payload"
 }
 
-# comment_once NUMBER KEY BODY: posts BODY unless a comment on the issue
-# already carries KEY, so a repeated run never posts it twice.
+# comment_once NUMBER KEY BODY: posts BODY unless a comment the watcher wrote
+# on the issue already carries KEY, so a repeated run never posts it twice.
+# Keys are predictable from public data, so anyone else's copy is ignored.
 comment_once() {
   local number="$1" key="$2" body comments payload
   body="$3"$'\n\n'"$(marker "comment=$key")"
   # Read first: inside the `if`, a failed read would look like "not posted".
   comments="$(api_all "repos/${REPO}/issues/${number}/comments?per_page=100")"
-  if jq -e --arg marker "$(marker "comment=$key")" 'any(.[]; (.body // "") | contains($marker))' \
+  if jq -e --arg marker "$(marker "comment=$key")" --arg login "$WATCHER_LOGIN" --arg type "$WATCHER_TYPE" \
+    'any(.[]; .user.login == $login and .user.type == $type and ((.body // "") | contains($marker)))' \
     <<< "$comments" > /dev/null; then
     printf 'issue #%s already has comment %s\n' "$number" "$key"
     return
@@ -134,15 +146,34 @@ comment_once() {
   write POST "repos/${REPO}/issues/${number}/comments" "comment on issue #$number ($key)" "$payload"
 }
 
+# reopen_note NUMBER: for a closed issue, a paragraph for the update comment
+# saying that set_marker reopens it; otherwise nothing.
+reopen_note() {
+  jq -r --argjson number "$1" --arg triaged "$TRIAGED_LABEL" '.[] | select(.number == $number and .state == "closed")
+    | "\n\nThis issue was closed, so the watcher has reopened it and removed any `\($triaged)` label: triage it again."' \
+    "$ISSUES"
+}
+
 # set_marker NUMBER NEW_MARKER: replaces the last marker in the issue's body.
+# The issue is reporting something new, so if it's closed, the same edit
+# reopens it and removes TRIAGED_LABEL, putting it back on the open list.
 set_marker() {
-  local number="$1" body payload
-  body="$(jq -r --argjson number "$number" '.[] | select(.number == $number) | .body' "$ISSUES")"
+  local number="$1" issue body payload summary
+  issue="$(jq -c --argjson number "$number" '.[] | select(.number == $number)' "$ISSUES")"
+  body="$(jq -r .body <<< "$issue")"
   body="$(jq -rn --arg body "$body" --arg new "$2" --arg prefix "$MARKER_PREFIX" '
     $body | [match("\($prefix)[^>]* -->"; "g")] | last as $m
     | $body[:$m.offset] + $new + $body[$m.offset + $m.length:]')"
-  payload="$(jq -n --arg body "$body" '{body: $body}')"
-  write PATCH "repos/${REPO}/issues/${number}" "update the marker of issue #$number" "$payload"
+  payload="$(jq -n --arg body "$body" --argjson issue "$issue" --arg triaged "$TRIAGED_LABEL" '{body: $body}
+    + if $issue.state != "closed" then {}
+      else {state: "open", state_reason: "reopened"}
+        + if $issue.labels | index($triaged) then {labels: ($issue.labels - [$triaged])} else {} end
+      end')"
+  summary="update the marker of issue #$number"
+  if [[ "$(jq -r .state <<< "$issue")" == closed ]]; then
+    summary="reopen issue #$number and update its marker"
+  fi
+  write PATCH "repos/${REPO}/issues/${number}" "$summary" "$payload"
 }
 
 close_issue() {

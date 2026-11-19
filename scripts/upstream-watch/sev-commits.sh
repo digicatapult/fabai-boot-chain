@@ -21,27 +21,16 @@ close_moved_pins() {
     jq -r --arg pin "$PIN_TAG" '.[] | select(.state == "open" and .pin != $pin) | "\(.number)\t\(.pin)"')
 }
 
-# candidates SINCE: every commit on master since SINCE touching a watched
-# path, oldest first, as a JSON array of {sha, date, title, url}.
-candidates() {
+# touching REF SINCE: every commit in REF's history since SINCE touching a
+# watched path, oldest first, as a JSON array of {sha, date, title, url}.
+touching() {
   local path all='[]' page
   for path in "${SEV_PATHS[@]}"; do
-    page="$(api_all "repos/${UPSTREAM}/commits?sha=master&path=${path}&since=${1}&per_page=100")"
+    page="$(api_all "repos/${UPSTREAM}/commits?sha=${1}&path=${path}&since=${2}&per_page=100")"
     all="$(jq -c --argjson page "$page" '. + [$page[] | {sha, date: .commit.committer.date,
       title: (.commit.message | split("\n") | first), url: .html_url}]' <<< "$all")"
   done
   jq -c 'unique_by(.sha) | sort_by(.date)' <<< "$all"
-}
-
-# in_pin SHA: whether the pinned commit already contains SHA.
-in_pin() {
-  local status
-  status="$(api "repos/${UPSTREAM}/compare/${PIN_COMMIT}...${1}?per_page=1" | jq -r .status)"
-  case "$status" in
-    behind | identical) printf 'true\n' ;;
-    ahead | diverged) printf 'false\n' ;;
-    *) fail "unexpected compare status for $1: $status" ;;
-  esac
 }
 
 # commit_line COMMIT_JSON: one Markdown list item, with the watched files the
@@ -67,7 +56,7 @@ Watched paths: ${paths%, }.
 
 $1
 
-New commits are added as comments. The watcher closes this issue when \`flake.lock\` moves to a newer tag.
+New commits are added as comments, and reopen this issue if it has been closed. The watcher closes it when \`flake.lock\` moves to a newer tag.
 
 $(marker "kind=sev-commits" "pin=${PIN_TAG}" "seen=$2")
 EOF
@@ -76,13 +65,17 @@ EOF
 watch_sev_commits() {
   close_moved_pins
 
-  local pin_date since all issue seen='' candidate sha contained new=() lines='' line
+  local pin_date since all contained issue seen='' candidate sha new=() lines='' line
   pin_date="$(api "repos/${UPSTREAM}/commits/${PIN_COMMIT}" | jq -r .commit.committer.date)"
   [[ "$pin_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$ ]] || fail "can't read the date of $PIN_COMMIT"
   # A margin, because committer dates can predate when a commit landed. The
-  # compare check, not the date, decides what the pin contains.
+  # pin's own history, not the date, decides what the pin contains: listed
+  # with the same filters, in a fixed number of calls however many commits
+  # there are. One this listing missed would be reported, never dropped.
   since="$(date -u -d "$pin_date - 30 days" +%Y-%m-%dT%H:%M:%SZ)"
-  all="$(candidates "$since")"
+  all="$(touching master "$since")"
+  contained="$(touching "$PIN_COMMIT" "$since" | jq -c 'map(.sha)')"
+  all="$(jq -c --argjson contained "$contained" 'map(select(.sha | IN($contained[]) | not))' <<< "$all")"
   issue="$(issues_of sev-commits | jq -c --arg pin "$PIN_TAG" '[.[] | select(.pin == $pin)] | first // empty')"
   if [[ -n "$issue" ]]; then
     seen="$(jq -r '.seen // ""' <<< "$issue")"
@@ -91,9 +84,6 @@ watch_sev_commits() {
   while IFS= read -r candidate; do
     sha="$(jq -r .sha <<< "$candidate")"
     [[ ",${seen}," != *",${sha},"* ]] || continue
-    # Assigned first: inside [[ ]], a failed compare would read as "not false".
-    contained="$(in_pin "$sha")"
-    [[ "$contained" == false ]] || continue
     new+=("$sha")
     line="$(commit_line "$candidate")"
     lines+="${line}"$'\n'
@@ -113,6 +103,8 @@ watch_sev_commits() {
   local number key
   number="$(jq -r .number <<< "$issue")"
   key="sev-commits-$(printf '%s' "$joined" | sha256sum | cut -c 1-12)"
-  comment_once "$number" "$key" "New commits that touch the SEV paths (${#new[@]}):"$'\n\n'"${lines%$'\n'}"
+  body="New commits that touch the SEV paths (${#new[@]}):"$'\n\n'"${lines%$'\n'}"
+  body+="$(reopen_note "$number")"
+  comment_once "$number" "$key" "$body"
   set_marker "$number" "$(marker "kind=sev-commits" "pin=${PIN_TAG}" "seen=${seen:+${seen},}${joined}")"
 }

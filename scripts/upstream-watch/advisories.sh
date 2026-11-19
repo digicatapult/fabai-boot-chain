@@ -80,12 +80,14 @@ Affected packages, as the advisory states them:
 
 ${affected:-- none given}
 
-Triage, then close this issue with the verdict as a comment and label it \`triaged\`:
+Triage, then close this issue with the verdict as a comment and label it \`${TRIAGED_LABEL}\`:
 
 - [ ] Affects \`OVMF.fd\` (cc)
 - [ ] Affects \`OVMF-noncc.fd\`
 - [ ] Fixed in the pinned tag, \`${PIN_TAG}\`
 - [ ] Action needed: a new release, or a patch
+
+If the advisory is updated later, the watcher comments here, reopens this issue and removes \`${TRIAGED_LABEL}\`.
 
 $(marker "kind=advisory" "ghsa=${ghsa}" "updated=${updated}")
 EOF
@@ -126,8 +128,9 @@ watch_advisories() {
       number="$(jq -r .number <<< "$issue")"
       load_sources
       body="$(update_body "$advisory")"
-      # Comment first, then the marker: a run that fails in between repeats
-      # neither (comment_once).
+      body+="$(reopen_note "$number")"
+      # Comment first, then the marker, which also reopens a closed issue: a
+      # run that fails in between repeats neither (comment_once).
       comment_once "$number" "advisory-updated-${updated}" "$body"
       set_marker "$number" "$(marker "kind=advisory" "ghsa=${ghsa}" "updated=${updated}")"
     else

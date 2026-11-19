@@ -90,8 +90,8 @@ already_raised() {
   setup
   add_tag edk2-stable202611 "$PIN_211"
   nixos_branch nixos-26.11
-  jq -n '[{number: 7, state: "closed", title: "old", labels: [{name: "upstream-watch"}],
-    body: "Done.\n\n<!-- upstream-watch kind=release tag=edk2-stable202611 -->"}]' > "$STATE/issues.json"
+  jq -n --argjson user "$WATCHER_USER" '[{number: 7, state: "closed", title: "old", labels: [{name: "upstream-watch"}],
+    user: $user, body: "Done.\n\n<!-- upstream-watch kind=release tag=edk2-stable202611 -->"}]' > "$STATE/issues.json"
   watch && [[ "$(writes)" == 0 ]] && [[ "$(jq -r '.[0].state' "$STATE/issues.json")" == closed ]]
 }
 check 'tag already raised and closed: no issue, not reopened' already_raised
@@ -186,9 +186,11 @@ sev_first() {
   watch && [[ "$(issues sev-commits)" == 1 ]] &&
     has sev-commits "[\`$(sha one | cut -c 1-12)\`]" && has sev-commits '`OvmfPkg/Library/CcExitLib/File.c`' &&
     ! has sev-commits 'MdePkg/Other.c' && ! has sev-commits "$(sha old | cut -c 1-12)" &&
-    has sev-commits "pin=edk2-stable202608 seen=$(sha one) -->"
+    has sev-commits "pin=edk2-stable202608 seen=$(sha one) -->" &&
+    ! grep -q '/compare/' "$STATE/calls.log" &&
+    [[ "$(grep -c "^GET repos/tianocore/edk2/commits?sha=${PIN_208}&" "$STATE/calls.log")" == 3 ]]
 }
-check 'first SEV commit after the pin: one issue; commits in the pin left out' sev_first
+check 'first SEV commit after the pin: one issue; commits in the pin left out, in 3 calls' sev_first
 
 sev_further() {
   setup
@@ -237,12 +239,12 @@ issues_fail() {
 check 'issue listing fails: the run fails, nothing written' issues_fail
 
 # Reads nested inside $(…) must still fail the run, not leave a gap.
-compare_fails() {
+pin_listing_fails() {
   setup
   add_sev "$(sha one)" OvmfPkg/AmdSev 2026-10-23T00:00:00Z 'OvmfPkg: one' ahead
-  ! FAKE_FAIL='/compare/' watch && [[ "$(issues sev-commits)" == 0 ]]
+  ! FAKE_FAIL="commits[?]sha=${PIN_208}&" watch && [[ "$(issues sev-commits)" == 0 ]]
 }
-check 'compare fails: the run fails, the commit isn'"'"'t dropped' compare_fails
+check 'pin history listing fails: the run fails, the commit isn'"'"'t dropped' pin_listing_fails
 
 nixpkgs_fails() {
   setup
@@ -273,6 +275,9 @@ dry_run() {
     [[ "$(grep -c '^dry run: would open issue' "$CASE/log")" == 3 ]]
 }
 check 'dry run: prints three planned issues, writes nothing' dry_run
+
+# shellcheck source=nix/upstream-watch/test-trust.sh
+source "$here/test-trust.sh"
 
 printf '%d checks, %d failed\n' "$CHECKS" "$FAILURES"
 ((FAILURES == 0))

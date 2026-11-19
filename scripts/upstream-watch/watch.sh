@@ -4,8 +4,9 @@
 #   - stable tags newer than the pin (tags.sh)
 #   - security advisories published since the cut-off (advisories.sh)
 #   - commits on master touching the SEV paths, not in the pin (sev-commits.sh)
-# Opens issues and comments, edits its own markers, closes SEV-commit issues
-# of earlier pins, and creates its labels. Nothing else.
+# Opens issues and comments, edits its own markers, reopens a closed issue it
+# reports an update on (removing `triaged`), closes SEV-commit issues of
+# earlier pins, and creates its labels. Nothing else.
 #
 # Run from the repository root. Environment:
 #   GITHUB_REPOSITORY  where to raise issues

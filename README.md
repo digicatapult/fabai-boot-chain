@@ -286,18 +286,23 @@ to be notified.
 | Label | Raised when | One issue per |
 |---|---|---|
 | `edk2-release` | An `edk2-stable*` tag, including `.NN` point releases, is newer than `flake.lock`'s pin | Tag. The issue is a checklist: the `flake.nix` edit, the nixpkgs move if a matching NixOS release exists, the release tag to push, and the measurement action's pin and FabAI vector |
-| `edk2-advisory` | A `tianocore/edk2` security advisory published since 2026-10-01 | Advisory. Later updates to it are commented on the issue |
-| `edk2-sev-commits` | Commits on edk2 `master` touch `OvmfPkg/AmdSev/`, `OvmfPkg/Library/BaseMemEncryptSevLib/` or `OvmfPkg/Library/CcExitLib/` and aren't in the pinned tag. SEV mitigations can land without an advisory | Pinned tag. New commits are commented on it, and it is closed when the pin moves |
+| `edk2-advisory` | A `tianocore/edk2` security advisory published since 2026-10-01 | Advisory. Later updates to it are commented on the issue, which is reopened if it was closed |
+| `edk2-sev-commits` | Commits on edk2 `master` touch `OvmfPkg/AmdSev/`, `OvmfPkg/Library/BaseMemEncryptSevLib/` or `OvmfPkg/Library/CcExitLib/` and aren't in the pinned tag. SEV mitigations can land without an advisory | Pinned tag. New commits are commented on it, reopening it if it was closed, and the watcher closes it when the pin moves |
 
 Every issue also carries `upstream-watch`. Advisory issues say whether any
 file of the affected edk2 package is compiled into the newest stable
 release's images, from its `SOURCES.txt`: none means the advisory is unlikely
 to apply. To triage one, tick its checklist, close it with the verdict as a
-comment, and add the `triaged` label.
+comment, and add the `triaged` label. When the watcher reports an update on a
+closed issue, it reopens the issue and removes `triaged`, so it's back on the
+open list to triage again.
 
 Each issue body ends with a hidden `<!-- upstream-watch … -->` marker,
 which is how the watcher knows what it has already raised, so don't edit or
-delete it. Editing that line can only cause a duplicate issue.
+delete it. Editing that line can only cause a duplicate issue. The watcher
+finds its issues by author (`github-actions[bot]`), not by label, so
+relabelling one is safe. Issues here are public, so it ignores markers in
+issues and comments anyone else wrote.
 
 Run it by hand from the Actions tab with **dry run** set to print what it
 would raise without writing anything. GitHub disables scheduled workflows in

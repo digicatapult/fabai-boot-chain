@@ -3,10 +3,13 @@
 # Supports only `gh api [--paginate] [--method M] [-H H] [--input -] ENDPOINT`.
 # State lives in FAKE_STATE:
 #   api.json       GET endpoint -> response; {"$file": path} serves a file raw
-#   issues.json    this repository's issues; POST and PATCH change them
+#   issues.json    this repository's issues; POST and PATCH change them, and
+#                  GET filters them by state, creator and one label
 #   comments.json  issue number -> comments; POST adds to them
 #   labels.json    this repository's labels; POST adds to them
 #   calls.log      one "METHOD ENDPOINT" line per call
+# Issues and comments it creates are by github-actions[bot], as GITHUB_TOKEN's
+# are; the tests add others' by editing the state directly.
 # An endpoint matching the regex FAKE_FAIL fails, as a network error would.
 # shellcheck disable=SC2016 # $payload in jq filters is jq's.
 set -euo pipefail
@@ -43,6 +46,7 @@ if [[ -n "${FAKE_FAIL:-}" && "$endpoint" =~ $FAKE_FAIL ]]; then
 fi
 
 own="repos/${GITHUB_REPOSITORY}"
+token_user='{"login": "github-actions[bot]", "type": "Bot"}'
 update() {
   jq "$@" > "$file.new"
   mv "$file.new" "$file"
@@ -50,12 +54,22 @@ update() {
 
 case "$method ${endpoint%%\?*}" in
   "GET $own/issues")
-    # Like GitHub: state defaults to open.
+    # Like GitHub: state defaults to open, and creator is URL-encoded.
     wanted=open
+    creator=''
+    label=''
     if [[ "$endpoint" =~ [?\&]state=([a-z]+) ]]; then
       wanted="${BASH_REMATCH[1]}"
     fi
-    jq --arg wanted "$wanted" '[.[] | select(any(.labels[]; .name == "upstream-watch"))
+    if [[ "$endpoint" =~ [?\&]creator=([^\&]+) ]]; then
+      creator="${BASH_REMATCH[1]}"
+    fi
+    if [[ "$endpoint" =~ [?\&]labels=([^\&,]+) ]]; then
+      label="${BASH_REMATCH[1]}"
+    fi
+    jq --arg wanted "$wanted" --arg creator "$creator" --arg wanted_label "$label" '[.[]
+      | select($creator == "" or (.user.login | @uri) == $creator)
+      | select($wanted_label == "" or any(.labels[]; .name == $wanted_label))
       | select($wanted == "all" or .state == $wanted)]' "$state/issues.json"
     ;;
   "GET $own/labels")
@@ -67,8 +81,8 @@ case "$method ${endpoint%%\?*}" in
     ;;
   "POST $own/issues")
     file="$state/issues.json"
-    update --slurpfile payload /dev/stdin '. + [{
-      number: ((map(.number) | max // 100) + 1), state: "open",
+    update --slurpfile payload /dev/stdin --argjson user "$token_user" '. + [{
+      number: ((map(.number) | max // 100) + 1), state: "open", user: $user,
       title: $payload[0].title, body: $payload[0].body,
       labels: ($payload[0].labels | map({name: .}))
     }]' "$file"
@@ -76,7 +90,8 @@ case "$method ${endpoint%%\?*}" in
   "PATCH $own/issues/"*)
     file="$state/issues.json"
     update --slurpfile payload /dev/stdin --argjson number "${endpoint##*/}" \
-      'map(if .number == $number then . + ($payload[0] | {body, state} | with_entries(select(.value))) else . end)' "$file"
+      'map(if .number == $number then . + ($payload[0] | {body, state, state_reason} | with_entries(select(.value)))
+        + ($payload[0] | if has("labels") then {labels: (.labels | map({name: .}))} else {} end) else . end)' "$file"
     ;;
   "GET $own/issues/"*/comments)
     number="${endpoint#"$own/issues/"}"
@@ -85,8 +100,8 @@ case "$method ${endpoint%%\?*}" in
   "POST $own/issues/"*/comments)
     number="${endpoint#"$own/issues/"}"
     file="$state/comments.json"
-    update --slurpfile payload /dev/stdin --arg number "${number%%/*}" \
-      '.[$number] += [{body: $payload[0].body}]' "$file"
+    update --slurpfile payload /dev/stdin --arg number "${number%%/*}" --argjson user "$token_user" \
+      '.[$number] += [{body: $payload[0].body, user: $user}]' "$file"
     ;;
   GET\ *)
     response="$(jq -c --arg endpoint "$endpoint" '.[$endpoint] // empty' "$state/api.json")"
