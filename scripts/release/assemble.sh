@@ -71,7 +71,8 @@ image_fields() {
   printf '#   git checkout %s\n' "$GITHUB_SHA"
   printf '#   cp <this release>/flake.lock flake.lock   # identical for stable releases\n'
   printf '#   nix build .#ovmf-cc .#ovmf-noncc\n'
-  printf '# then compare sha256sum result*/*.fd with the values below.\n\n'
+  printf '# then compare sha256sum result*/*.fd with the values below.\n'
+  printf '# On a Mac or ARM64 machine, run these in an amd64 container: %s#building-on-non-amd64-hosts\n\n' "$repo_url"
   field release.tag "$TAG"
   field release.track "$TRACK"
   field release.run "$run_url"

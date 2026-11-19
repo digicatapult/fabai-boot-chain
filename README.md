@@ -97,6 +97,8 @@ nix build .#ovmf-cc        # or .#ovmf-noncc
 sha256sum result/*.fd
 ```
 
+To rebuild under ARM64 (MacOS/Linux), follow the processes as described [below](#building-on-non-amd64-hosts).
+
 Compare the digest with the release's `SHA256SUMS`. Digests change whenever the
 edk2 or nixpkgs pin moves, so each release records its own rather than this
 README. For a HEAD release, first replace `flake.lock` with the release's own.
@@ -104,6 +106,57 @@ README. For a HEAD release, first replace `flake.lock` with the release's own.
 CI builds each variant on two runner images, with a second built from scratch on
 one of them, and fails unless all three images are identical. It also checks
 that the non-confidential patch leaves `OVMF.fd` byte-for-byte unchanged.
+
+### Building on non-AMD64 hosts
+
+The firmware is only defined for `x86_64-linux`, so on a Mac (including with
+Nix installed natively) or ARM64 Linux, `nix build .#ovmf-cc` fails with
+`does not provide attribute 'packages.aarch64-linux.ovmf-cc'`. That is
+deliberate: a cross-compiler is a different compiler binary, so its image
+wouldn't match the release. Instead, run the same `x86_64-linux` build under
+emulation.
+
+On a Mac with Apple silicon, use Docker Desktop with **Use Rosetta for
+x86_64/amd64 emulation on Apple Silicon** turned on (Settings, General), and
+start Nix in an amd64 container:
+
+```sh
+docker run --rm -it --platform linux/amd64 --privileged \
+  nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed
+```
+
+Inside it:
+
+```sh
+git clone https://github.com/digicatapult/fabai-boot-chain
+cd fabai-boot-chain
+git checkout <release tag>
+# HEAD releases only:
+# curl -fsSLo flake.lock https://github.com/digicatapult/fabai-boot-chain/releases/download/<release tag>/flake.lock
+nix --extra-experimental-features 'nix-command flakes' \
+  --option sandbox true --option filter-syscalls false \
+  build .#ovmf-cc .#ovmf-noncc
+sha256sum result*/*.fd
+```
+
+- The image turns off flakes and the build sandbox; the options turn them back
+  on, and `--privileged` lets Nix create the sandbox. x86_64 syscall filters
+  can't be loaded under Rosetta, so `filter-syscalls false` drops them. They
+  only stop a build creating setuid files or extended attributes, and don't
+  change the image.
+- The Nix version doesn't change the image either, since the toolchain comes
+  from `flake.lock`. The tag above is the one CI installed when this was
+  written.
+- Before the long build, `nix eval --raw .#packages.x86_64-linux.ovmf-cc.drvPath`
+  (with the same options) should print the release's `cc.drv` from
+  `PROVENANCE.txt`. If it matches, the sources, patches and toolchain are the
+  ones CI used.
+- On a 10-core Apple silicon Mac, both images took about 20 minutes, 5 of them
+  fetching edk2. They matched `ovmf-head-20261118-556dcfb466e9`'s
+  `SHA256SUMS`.
+
+On ARM64 Linux, the same container works once Docker can run amd64 images
+through QEMU user emulation (binfmt). QEMU can be slower than Rosetta.
 
 ## Testing
 
