@@ -89,6 +89,7 @@
       checks = nixpkgs.lib.genAttrs lintSystems (
         lintSystem:
         nixpkgs.legacyPackages.${lintSystem}.callPackages ./nix/lint.nix { }
+        // nixpkgs.legacyPackages.${lintSystem}.callPackages ./nix/upstream-watch.nix { }
         // measureSnp.${lintSystem}.checks
       );
     };

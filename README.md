@@ -133,9 +133,9 @@ it comes in with the SEV hash verifier, which `OVMF-noncc.fd` replaces.
 
 `nix flake check` runs actionlint, ShellCheck, a check that every action is
 pinned to a full commit SHA and every workflow starts from `permissions: {}`,
-the Renovate config validator, and the offline tests of the
-[measurement action](#measuring-a-deployment). It doesn't build firmware, so
-it also runs on `aarch64-linux`. The pinning check reads `uses:` line by line, so it accepts
+the Renovate config validator, and the [upstream watch](#upstream-watch)'s
+tests against a fake `gh`. It doesn't build firmware, so it also runs
+on `aarch64-linux`. The pinning check reads `uses:` line by line, so it accepts
 only block style (`uses: <ref>`) and rejects any other form, such as
 `{ uses: … }`, rather than skip it. CI builds the same checks without
 evaluating the firmware packages, so the lint job never needs the edk2 source.
@@ -272,6 +272,42 @@ template reproduces a published Tinfoil deployment's. CI's advisory
 `Measurement regression` job reproduces Tinfoil's published measurement for
 `confidential-model-router` v0.0.178 (`cvmimage` 0.14.19), and the FabAI vector for the `cc` image
 it built ([`nix/measure-snp/regression.sh`](nix/measure-snp/regression.sh)).
+
+## Upstream watch
+
+Security fixes reach the firmware only when the edk2 pin moves, so
+[`upstream-watch.yml`](.github/workflows/upstream-watch.yml) checks
+[tianocore/edk2](https://github.com/tianocore/edk2) daily and raises an issue
+for each event that may need a release
+([`scripts/upstream-watch`](scripts/upstream-watch/watch.sh)). It needs only
+`issues: write`, and never opens PRs, pushes or tags. Watch this repository
+to be notified.
+
+| Label | Raised when | One issue per |
+|---|---|---|
+| `edk2-release` | An `edk2-stable*` tag, including `.NN` point releases, is newer than `flake.lock`'s pin | Tag. The issue is a checklist: the `flake.nix` edit, the nixpkgs move if a matching NixOS release exists, the release tag to push, and the measurement action's pin and FabAI vector |
+| `edk2-advisory` | A `tianocore/edk2` security advisory published since 2026-10-01 | Advisory. Later updates to it are commented on the issue, which is reopened if it was closed |
+| `edk2-sev-commits` | Commits on edk2 `master` touch `OvmfPkg/AmdSev/`, `OvmfPkg/Library/BaseMemEncryptSevLib/` or `OvmfPkg/Library/CcExitLib/` and aren't in the pinned tag. SEV mitigations can land without an advisory | Pinned tag. New commits are commented on it, reopening it if it was closed, and the watcher closes it when the pin moves |
+
+Every issue also carries `upstream-watch`. Advisory issues say whether any
+file of the affected edk2 package is compiled into the newest stable
+release's images, from its `SOURCES.txt`: none means the advisory is unlikely
+to apply. To triage one, tick its checklist, close it with the verdict as a
+comment, and add the `triaged` label. When the watcher reports an update on a
+closed issue, it reopens the issue and removes `triaged`, so it's back on the
+open list to triage again.
+
+Each issue body ends with a hidden `<!-- upstream-watch … -->` marker,
+which is how the watcher knows what it has already raised, so don't edit or
+delete it. Editing that line can only cause a duplicate issue. The watcher
+finds its issues by author (`github-actions[bot]`), not by label, so
+relabelling one is safe. Issues here are public, so it ignores markers in
+issues and comments anyone else wrote.
+
+Run it by hand from the Actions tab with **dry run** set to print what it
+would raise without writing anything. GitHub disables scheduled workflows in
+public repositories after 60 days without activity; if that happens,
+re-enable `Upstream watch`, `Release HEAD`, and `Cache` there.
 
 ## Related repositories
 
