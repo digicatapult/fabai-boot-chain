@@ -111,7 +111,7 @@ that the non-confidential patch leaves `OVMF.fd` byte-for-byte unchanged.
 
 The firmware is only defined for `x86_64-linux`, so on a Mac (including with
 Nix installed natively) or ARM64 Linux, `nix build .#ovmf-cc` fails with
-`does not provide attribute 'packages.aarch64-linux.ovmf-cc'`. That is
+`does not provide attribute 'packages.<your system>.ovmf-cc'`. That is
 deliberate: a cross-compiler is a different compiler binary, so its image
 wouldn't match the release. Instead, run the same `x86_64-linux` build under
 emulation.
