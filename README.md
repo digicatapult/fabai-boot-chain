@@ -41,7 +41,7 @@ guest is meant to be protected from.
 | Track  | Built from                | Tag                           | When                                                                                                        |
 | ------ | ------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | Stable | Latest `edk2-stable*` tag | `ovmf-edk2-stableYYYYMM-rN`   | Each upstream stable release (roughly quarterly). `rN` increments when only this repository's build changes |
-| HEAD   | edk2 `master`             | `ovmf-head-YYYYMMDD-<commit>` | By hand for now (daily later), if upstream or this repository changed. A prerelease; the last 30 are kept   |
+| HEAD   | edk2 `master`             | `ovmf-head-YYYYMMDD-<commit>` | Daily, if upstream or this repository changed. A prerelease; the last 30 are kept                           |
 
 Every release contains:
 
