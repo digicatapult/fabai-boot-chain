@@ -307,7 +307,7 @@ issues and comments anyone else wrote.
 Run it by hand from the Actions tab with **dry run** set to print what it
 would raise without writing anything. GitHub disables scheduled workflows in
 public repositories after 60 days without activity; if that happens,
-re-enable `Upstream watch` and `Cache` there.
+re-enable `Upstream watch`, `Release HEAD`, and `Cache` there.
 
 ## Related repositories
 
